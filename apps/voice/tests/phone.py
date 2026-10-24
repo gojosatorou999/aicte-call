@@ -37,8 +37,15 @@ class Turn:
 
     @property
     def prompt(self) -> str:
+        """The question the caller is being asked: the LAST line spoken inside the Gather."""
         g = self.gather
-        return (g.find("Say").text or "") if g is not None and g.find("Say") is not None else ""
+        says = g.findall("Say") if g is not None else []
+        return (says[-1].text or "") if says else ""
+
+    @property
+    def spoken_in_gather(self) -> list[str]:
+        g = self.gather
+        return [e.text or "" for e in g.findall("Say")] if g is not None else []
 
     @property
     def ended(self) -> bool:

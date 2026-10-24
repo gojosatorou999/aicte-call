@@ -81,6 +81,7 @@ async def turn(
     inp = Input(text=form.get("SpeechResult", "").strip(), digits=form.get("Digits", "").strip())
     step = await run_turn(call, node, inp, noinput=bool(noinput), settings=settings)
     xml = render(call, step, settings)
+    request.app.state.calllog.upsert(call, ended=step.end)  # the admin report
     if step.end:
         log.info("graph_call_ended", call_sid=sid, lines=len(call.transcript))
         _store(request).drop(sid)

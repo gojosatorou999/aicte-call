@@ -205,3 +205,26 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   element a restricted trial account may refuse.
 - **Live mode is kept** for an upgraded account with ConversationRelay enabled (the human-sounding,
   interruptible voice); nothing was removed.
+
+## Simplified public line, interruptible Gather, call report (owner requests)
+
+- **The public caller only says a college name.** No menu: the first (and only) question is "Please
+  say the name of the college"; whatever is said is searched as a name (filler words trimmed from the
+  ends only), so any name works - the answer depends on the core's data (the mock has two made-up
+  colleges and never invents approval for a real one). After the answer nothing more is asked; the line
+  stays open for questions and silence ends the call ("Have a nice day. Goodbye."). A bare "college"
+  asks which one. "Officer" still asks for a callback, "complaint" starts a complaint.
+- **Questions are answered, without an LLM:** follow-ups about the college just discussed (courses,
+  intake, where, status) from data already fetched, and rules questions from the core's handbook
+  search (`search_aph`). If the search finds nothing the caller gets the normal "could not find",
+  never a guess; every handbook answer is followed by "an officer decides on any application".
+- **Complaint ends the call** right after the reference number is read out once.
+- **Interruption:** all spoken lines now sit inside the `<Gather>` (a `<Say>` before it can never be
+  interrupted). `bargeIn="true"` is set but is not in Twilio's documented Gather attributes; whether
+  speech (not just a key press) cuts in is Twilio's behaviour and must be confirmed on a real call.
+- **Call report** (`calllog.py`): one row per call in SQLite plus `data/calls.csv`, rewritten after each
+  change; `/admin` dashboard and `/admin/export.csv` behind HTTP Basic auth (`ADMIN_USER` /
+  `ADMIN_PASSWORD`; off when unset; wrong-password throttling). Only the last four digits of the phone
+  number are stored; transcripts are redacted; PIN/OTP never captured; formula-looking cells are
+  prefixed with `'`. The `data/` folder is gitignored. The unused `ADMIN_API_KEY` setting was replaced.
+- **The dial pad no longer asks what the call is about** (demo scenarios stay in the backend, off).

@@ -83,6 +83,24 @@ On the page you can also pick a **demo scenario** (public enquiry, institution r
 faculty) — it appears when `DEMO_SCENARIOS=true` in `.env`. The officer PIN is `246810` and the
 faculty code `123456`, typed on the keypad.
 
+### The admin dashboard and the CSV
+
+Every call is recorded — like the earlier Sentinel agent's reports.
+
+- **Dashboard:** `https://rehydrate-alongside-shampoo.ngrok-free.dev/admin` — user `admin`, password
+  = `ADMIN_PASSWORD` in `apps/voice/.env` (the first visit to an ngrok address may show ngrok's own
+  "Visit Site" button; click it). It lists each call with the **college the caller said, the college
+  matched, the result** (approved / not approved / not found), any **complaint reference and text**,
+  duration and outcome (completed / in progress / hung up); click a row for the full transcript.
+  Search box, auto-refresh every 10 s, and an **Export CSV** button.
+- **CSV file:** `apps/voice/data/calls.csv` is rewritten after every call (and exists, header only,
+  from the first start). Open it in Excel. The same file is what *Export CSV* downloads. Both
+  `data/` files hold what callers said, so they are **gitignored — never commit them** (the repo is public).
+- **Privacy:** only the last four digits of a phone number are stored; spoken text has phone numbers
+  and digit runs removed; PINs and one-time codes are never captured. Text that could be read as a
+  spreadsheet formula (`=…`, `+…`) is neutralised in the CSV.
+- **Not logged:** calls in the `relay` (LLM) mode.
+
 ### What actually works today, and how it sounds (honest version)
 
 - **A real call has been made end to end** on a Twilio *trial* account: the dial pad rang a phone,
@@ -98,6 +116,9 @@ faculty code `123456`, typed on the keypad.
   setting could not be found on the trial, and a trial hides Twilio's own error records, so the exact
   cause is unconfirmed. After upgrading the account, set `CONVERSATION_MODE=live` and try again; the
   dial pad explains the failure if it still happens.
+- **Interrupting:** every spoken line is inside Twilio's `<Gather>`, the only place a caller can cut in, so a keypad press stops the
+  agent. Whether **speaking** over it also cuts in is Twilio's decision for `<Gather>` (it is not a documented option), so it may
+  not. True talk-over barge-in is what `live` mode provides, once the account can use it.
 - **Speed:** our share of each reply is small (about 150–170 ms through your ngrok address, including
   the backend lookup). Twilio's speech recognition then waits for a natural pause before it passes
   your words on, which is the delay you hear in Gather mode; I cannot measure that from here.
@@ -119,7 +140,7 @@ Someone calls the number. The service works out **who they are** from the caller
 
 | Caller | How they're recognised | What they can do by voice |
 |---|---|---|
-| **Member of the public** (student, parent) | Anyone not otherwise recognised | Ask whether an institution is AICTE-approved (courses + intake); file a complaint about a fake or unapproved college and get a ticket number |
+| **Member of the public** (student, parent) | Anyone not otherwise recognised | **Say a college name — any name — and hear whether it is approved** (courses, intake). Keep talking to ask about it (courses, seats, where, rules); say *complaint* to report a problem. No menu, no extra questions; silence ends the call politely |
 | **Institution staff** | Caller ID matches a registered contact — or an outbound call placed to them | Hear their open items and due dates; promise a completion date (a *commitment*); ask for more time (an *extension request*); get the upload link on WhatsApp / SMS / email |
 | **AICTE officer** | Caller ID matches an officer, **then a 6-digit voice PIN on the keypad** | Queue summary, overdue lists (stages, undertakings, documents, visits), regional statistics, a report emailed to them, a reminder sent to an institution |
 | **Faculty member** | Caller ID matches a faculty record, **then a one-time code on the keypad** | Hear their registration status and any duplicate flag with the steps to resolve it; file a grievance about their record |
@@ -142,21 +163,30 @@ These transcripts are real output of the running service, driven by
 [`scripts/simulate_call.py`](./apps/voice/scripts/simulate_call.py) against the mock core
 (`🤖` = what the caller hears; the lines after `you>` are what the caller said or pressed).
 
-**A parent checks a college** (unknown number → public persona)
+**A parent checks a college** (unknown number → public persona; the caller only says a name)
 
 ```
-🤖  Hello, this is the AICTE assistant.
-🤖  How can I help? Say check an institution, or press 1. Say file a complaint, or press 2. ...
-you> check an institution
-🤖  Please say the name of the institution, and the city if you know it.
-you> Sri
-🤖  I found 2 matches.
-🤖  Which one? 1: Sri Venkateswara Institute of Technology, Anantapur. 2: Sri Sai College of Engineering, Chennai. Say or press the number.
-you> 2
+🤖  Hello, this is the AICTE assistant, calling as you requested from our website.
+🤖  Please say the name of the college.
+you> Sri Sai
 🤖  Sri Sai College of Engineering is approved for 2026-27. Approved courses: B.Tech CSE, intake 120; B.Tech ECE, intake 60.
-🤖  Is there anything else? You can check another institution, file a complaint, or say goodbye.
-you> no thanks
-🤖  Thank you for calling. Goodbye.
+you> how many seats
+🤖  Approved intake at Sri Sai College of Engineering: B.Tech CSE, 120 seats; B.Tech ECE, 60 seats.
+          (silence)
+🤖  Thank you for calling. Have a nice day. Goodbye.
+```
+
+**A complaint** (the reference is given once, then the call ends)
+
+```
+you> I want to file a complaint
+🤖  Which college is the complaint about?
+you> Green Valley College
+🤖  Please describe the problem in a sentence or two.
+you> They are running courses without any approval and taking fees
+🤖  I will file a complaint about Green Valley College: ... Say yes to file it, or no to cancel.
+you> yes
+🤖  Your complaint is filed. Your reference number is G R V, 2 0 2 6, 0 0 0 1. Thank you for calling. Have a nice day. Goodbye.
 ```
 
 **An officer** (PIN is typed on the keypad, never spoken; first attempt deliberately wrong)
@@ -397,6 +427,8 @@ Settings come from environment variables or `apps/voice/.env`. The full annotate
 | `CALLER_HASH_PEPPER` | dev value | Phone numbers are stored only as HMAC hashes; production refuses the dev value |
 | `LLM_API_KEY` / `LLM_MODEL` | – / `gpt-4o-mini` | Only for `relay` / `hybrid` |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_VOICE_NUMBER` | – | Needed to place calls: the account and the Twilio number the agent calls *from* (`+E.164`) |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / empty | Sign-in for `/admin`. Empty password = dashboard switched off |
+| `CALL_LOG_DB` / `CALL_LOG_CSV` | `data/calls.db` / `data/calls.csv` | Where the call report is kept |
 | `DIAL_PAD_TOKEN` | empty | Optional access code the page asks for |
 | `DIAL_ALLOWED_PREFIXES` | `+91` | Only these country prefixes can be dialled (empty = any) |
 | `DIAL_PER_NUMBER_PER_HOUR` / `DIAL_PER_IP_PER_HOUR` / `DIAL_GLOBAL_PER_DAY` | `3` / `10` / `100` | Limits protecting your Twilio balance |
@@ -442,6 +474,7 @@ These are enforced in Python, not just asked of a model, so they hold in every m
 | `POST /voice/outbound-twiml?d=<id>` | Twilio, when the person answers | Starts the conversation for a call the dial pad placed |
 | `WS /voice/live` | Twilio ConversationRelay | The graph conversation with streaming speech (`live` mode) |
 | `WS /voice/relay` | Twilio ConversationRelay | LLM conversation (`relay`/`hybrid` only) |
+| `GET /admin` · `/admin/api/calls` · `/admin/export.csv` | you (browser, password) | The call-report dashboard and its CSV download |
 | `GET /dial/config` · `POST /dial/call` · `GET /dial/status/<sid>` | the dial pad page | What to show; place the call; follow it (ringing → connected → ended) |
 
 The contract with the core API is in [`app.md`](./app.md) §13.13 and the tool list in
@@ -466,6 +499,7 @@ apps/voice/
     graph/                 THE Gather graph: engine, state, TwiML rendering, nodes/{public,institution,officer,faculty,verify}
     agent/                 policy, verification, tool layer, personas; plus the optional LLM brain/guardrails
     graph/live.py          the graph over a ConversationRelay WebSocket (live mode)
+    calllog.py · api/routes_admin.py · api/admin.html   the call report: SQLite + calls.csv, dashboard, CSV export
     dial.py · api/routes_dial.py   the "call me" feature: number checks, limits, Twilio dialler
     relay_ws.py            ConversationRelay WebSocket for the LLM (relay/hybrid)
     speech/                date & time parsing, yes/no detection, phrases, languages

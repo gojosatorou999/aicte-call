@@ -52,6 +52,8 @@ class SessionClaims:
     verified: bool = False
     # The call came from the Gather graph: the relay may hand control back to it.
     via_graph: bool = False
+    direction: str = "inbound"  # "outbound" for calls the dial pad placed
+    phone_masked: str = ""  # ******1234: for the admin report; never the real number
 
 
 def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str:
@@ -74,6 +76,9 @@ def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str
         payload["verified"] = True
     if claims.via_graph:
         payload["via_graph"] = True
+    payload["direction"] = claims.direction
+    if claims.phone_masked:
+        payload["phone_masked"] = claims.phone_masked
     return jwt.encode(payload, s.jwt_secret, algorithm=_ALG)
 
 
@@ -100,4 +105,6 @@ def verify_session(token: str, settings: Settings | None = None) -> SessionClaim
         subject_id=data.get("subject_id"),
         verified=bool(data.get("verified", False)),
         via_graph=bool(data.get("via_graph", False)),
+        direction=str(data.get("direction", "inbound")),
+        phone_masked=str(data.get("phone_masked", "")),
     )

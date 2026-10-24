@@ -15,7 +15,7 @@ from typing import Any
 from app import clock
 from app.agent.personas import CallPurpose
 from app.graph.engine import Input, Kind, Step, fallback, handoff, node
-from app.graph.nodes.util import tool_failed, unclear
+from app.graph.nodes.util import answer_from_handbook, tool_failed, unclear
 from app.graph.state import CallState
 from app.speech import dates
 from app.speech.intent import has_any, is_affirmative, is_negative, pick_number
@@ -94,7 +94,7 @@ async def inst_menu(call: CallState, inp: Input) -> Step:
     if has_any(t, *ITEMS_WORDS):
         return await _list_items(call)
     if has_any(t, *QUESTION_WORDS):
-        return await fallback(
+        return await answer_from_handbook(call, t) or await fallback(
             call, "Institution caller has a rules question the menu cannot answer."
         )
     if has_any(t, "no", "nothing", "nope"):

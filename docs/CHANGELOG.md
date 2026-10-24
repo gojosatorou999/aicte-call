@@ -90,3 +90,11 @@
 - Gather path uses Polly neural en-IN and `phone_call` (as the earlier agent); recording optional.
 - Per-call key in action URLs; unsigned conversation steps accepted only with it (see DECISIONS.md).
 - Tests: 311.
+
+## Simpler public line, interruptible prompts, admin dashboard + CSV
+
+- Public flow: say a college name, get the answer, ask follow-ups, silence ends the call; complaint ends
+  the call after the reference number. Handbook answers via the core's search.
+- All Gather speech nested inside the `<Gather>` (interruptible by key press; speech barge-in unconfirmed).
+- `calllog.py` + `/admin` dashboard + CSV export + `data/calls.csv`; dial pad scenario question removed.
+- Tests: 340+.

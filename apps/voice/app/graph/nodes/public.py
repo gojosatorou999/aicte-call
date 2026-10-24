@@ -1,42 +1,105 @@
-"""PUBLIC persona: approval lookups and complaints (app.md 12.3)."""
+"""PUBLIC persona: say a college name, hear whether it is approved (app.md 12.3).
+
+The conversation is deliberately minimal:
+
+    "Please say the name of the college."   ->  the caller says a name, any name
+    "<College> is approved for 2026-27 ..." ->  the answer; the line stays open for questions
+    (silence, or "that's all")              ->  "Have a nice day. Goodbye." and hang up
+
+Questions the caller asks while or after the answer are handled on the open line: about the
+college just discussed (courses, intake, where, status), or about the rules, from the approval
+handbook. "Complaint" starts a complaint; once its reference number is read out the call ends.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.graph.engine import Input, Kind, Step, node
-from app.graph.nodes.util import spell, tool_failed, unclear
+from app.graph.engine import MSG_BYE, OFFICER, Input, Kind, Step, handoff, node
+from app.graph.nodes.util import POLICY_WORDS, answer_from_handbook, spell, tool_failed, unclear
 from app.graph.state import CallState
 from app.speech.intent import has_any, is_affirmative, is_negative, pick_number
 
-MENU_FIRST = (
-    "How can I help? Say check an institution, or press 1. Say file a complaint, or press 2. "
-    "Or say officer to request a call back."
-)
-MENU_AGAIN = (
-    "Is there anything else? You can check another institution, file a complaint, or say goodbye."
-)
-
-CHECK_WORDS = (
-    "approved", "approval", "institution", "college", "university", "check", "status",
-    "recognised", "recognized", "valid", "affiliated",
-)  # fmt: skip
 COMPLAINT_WORDS = ("complaint", "complain", "grievance", "fake", "fraud", "report", "cheating")
 FAKE_WORDS = ("fake", "fraud", "unapproved", "bogus", "illegal", "not approved", "without approval")
-# Words dropped when the caller says the whole question ("is X approved by AICTE") so that
-# only the institution's name goes to the search.
+BYE_WORDS = ("goodbye", "bye", "thanks", "thank", "that is all", "thats all", "nothing", "no more")
+# Words trimmed from the *ends* of what the caller said ("is X approved by AICTE", "check X") so
+# that only the college's name goes to the search. Never removed from the middle: "Sri Sai
+# College of Engineering" keeps its "College".
 FILLER = frozenset(
     [
-        "is", "are", "was", "am", "please", "tell", "me", "can", "you", "could", "check", "if",
-        "whether", "approved", "approval", "by", "aicte", "recognised", "recognized", "valid",
-        "status", "the", "a", "an", "for", "i", "want", "to", "know", "and", "also", "does", "it",
-        "have", "verify", "affiliated", "another", "other", "different", "something", "one",
+        "is",
+        "are",
+        "was",
+        "am",
+        "please",
+        "tell",
+        "me",
+        "can",
+        "you",
+        "could",
+        "check",
+        "if",
+        "whether",
+        "approved",
+        "approval",
+        "by",
+        "aicte",
+        "recognised",
+        "recognized",
+        "valid",
+        "status",
+        "the",
+        "a",
+        "an",
+        "for",
+        "i",
+        "want",
+        "to",
+        "know",
+        "and",
+        "also",
+        "does",
+        "it",
+        "have",
+        "verify",
+        "affiliated",
+        "another",
+        "other",
+        "different",
+        "something",
+        "one",
+        "about",
+        "find",
+        "search",
+        "look",
+        "up",
+        "details",
+        "information",
     ]
+)
+MAX_COURSES_SPOKEN = 3
+MAX_COURSES_LISTED = 8
+MAX_CHOICES = 3
+MIN_COMPLAINT_CHARS = 10
+MAX_NAME_ATTEMPTS = 2
+
+# Follow-up questions about the college just discussed.
+COURSE_WORDS = (
+    "course", "courses", "branch", "branches", "program", "programs", "programme", "streams",
 )  # fmt: skip
+SEAT_WORDS = ("seats", "seat", "intake", "capacity", "admissions", "vacancies")
+WHERE_WORDS = ("where", "city", "located", "location", "state", "address")
+STATUS_WORDS = ("approved", "approval", "valid", "status", "recognised", "recognized", "affiliated")
+OTHER_WORDS = ("another", "other", "different", "new", "next")
+# Said on their own these are not a name ("check another college"): ask which one.
+GENERIC_NAMES = frozenset(
+    {"college", "colleges", "institute", "institution", "university", "school"}
+)
 
 
 def _trim_filler(text: str) -> str:
-    """Drop filler only from the two ends: "Sri Sai College of Engineering" keeps its "College"."""
+    """Drop filler only from the two ends of the sentence."""
     words = text.split()
 
     def filler(w: str) -> bool:
@@ -49,15 +112,6 @@ def _trim_filler(text: str) -> str:
     return " ".join(words)
 
 
-MAX_COURSES_SPOKEN = 3
-MAX_CHOICES = 3
-MIN_COMPLAINT_CHARS = 10
-
-
-def _menu_prompt(call: CallState) -> str:
-    return MENU_AGAIN if call.slots.get("served") else MENU_FIRST
-
-
 def _looks_fake(text: str) -> bool:
     """A complaint about a fake / unapproved institution (vs. an ordinary grievance)."""
     if has_any(text, *FAKE_WORDS):
@@ -67,39 +121,84 @@ def _looks_fake(text: str) -> bool:
     ) and has_any(text, "without", "no", "not", "never", "lack", "lacks")
 
 
+def _note_lookup(call: CallState, **fields: Any) -> None:
+    """Remember what was asked and what came of it, for the admin dashboard / CSV."""
+    call.facts.setdefault("intent", "college_check")
+    call.facts.setdefault("lookups", []).append(fields)
+
+
+# -- the college name ------------------------------------------------------------------------------
 @node(
     "pub_menu",
-    _menu_prompt,
-    kind=Kind.BOTH,
-    num_digits=1,
-    hints="check an institution, file a complaint, officer, goodbye",
+    "Please say the name of the college.",
+    open_ended=True,
+    hints="college, institute, institution, university, engineering college, complaint",
 )
 async def pub_menu(call: CallState, inp: Input) -> Step:
-    text = inp.text
-    if inp.digits == "2" or has_any(text, *COMPLAINT_WORDS):
-        return Step(goto="pub_gv_inst")
-    if inp.digits == "1" or has_any(text, *CHECK_WORDS):
-        name = _trim_filler(text)
-        if (
-            len(name.split()) >= 2
-        ):  # "is Sri Venkateswara Institute approved": the name came with it
-            return await _find_institution(call, name)
-        return Step(goto="pub_inst_name")
-    if has_any(text, "no", "nothing", "nope"):
-        return Step(say=["Thank you for calling. Goodbye."], end=True)
-    return await unclear(
-        call, "pub_menu", summary="Public caller's request was not understood by the menu."
-    )
+    return await _public_input(call, inp.text)
 
 
-# -- institution lookup ------------------------------------------------------------------------
 @node(
-    "pub_inst_name",
-    "Please say the name of the institution, and the city if you know it.",
+    "pub_more",
+    "",  # nothing more is asked: the line just stays open for a question
     open_ended=True,
+    end_on_silence=True,
+    hints="courses, intake, seats, where, another college, complaint, goodbye",
 )
-async def pub_inst_name(call: CallState, inp: Input) -> Step:
-    return await _find_institution(call, inp.text)
+async def pub_more(call: CallState, inp: Input) -> Step:
+    return await _public_input(call, inp.text)
+
+
+async def _public_input(call: CallState, text: str) -> Step:
+    """Whatever the caller says on the public line: a name, a question, a complaint or goodbye."""
+    if has_any(text, *BYE_WORDS) and len(text.split()) <= 4:
+        return Step(say=[MSG_BYE], end=True)
+    if has_any(text, *OFFICER) and len(text.split()) <= 6:
+        return await handoff(call, "Caller asked to speak to an officer.")
+    if has_any(text, *COMPLAINT_WORDS):
+        return Step(goto="pub_gv_inst")
+    if (follow_up := _follow_up(call, text)) is not None:  # about the college just discussed
+        return follow_up
+    if has_any(text, *POLICY_WORDS) and (answer := await answer_from_handbook(call, text)):
+        return answer
+    name = _trim_filler(text)
+    if not name:
+        return Step(say=["Sorry, I did not catch that."], stay=True)
+    if name.lower().strip(".,?!") in GENERIC_NAMES:
+        return Step(goto="pub_menu")  # "which college?" - the prompt asks it again
+    return await _find_institution(call, name)
+
+
+def _follow_up(call: CallState, text: str) -> Step | None:
+    inst = call.slots.get("last_inst")
+    if not inst or has_any(text, *OTHER_WORDS):
+        return None
+    name, courses = inst["name"], inst["courses"]
+    say: str | None = None
+    if has_any(text, *COURSE_WORDS):
+        listed = ", ".join(c["name"] for c in courses[:MAX_COURSES_LISTED])
+        say = (
+            f"{name} is approved for {listed}."
+            if listed
+            else f"I have no approved courses on record for {name}."
+        )
+    elif has_any(text, *SEAT_WORDS):
+        listed = "; ".join(
+            f"{c['name']}, {c['intake']} seats" for c in courses[:MAX_COURSES_LISTED]
+        )
+        say = (
+            f"Approved intake at {name}: {listed}."
+            if listed
+            else f"I have no intake figures on record for {name}."
+        )
+    elif has_any(text, *WHERE_WORDS) and (inst.get("city") or inst.get("state")):
+        place = ", ".join(p for p in (inst.get("city"), inst.get("state")) if p)
+        say = f"{name} is in {place}."
+    elif has_any(text, *STATUS_WORDS) and len(text.split()) <= 8:
+        say = inst["status_text"]
+    if say is None:
+        return None
+    return Step(say=[say], goto="pub_more")
 
 
 async def _find_institution(call: CallState, name: str) -> Step:
@@ -108,23 +207,22 @@ async def _find_institution(call: CallState, name: str) -> Step:
         return await tool_failed(call, res)
     results: list[dict[str, Any]] = list(res.data.get("results") or [])
     if not results:
-        if call.bump("pub_inst_name") >= 2:
-            call.clear("pub_inst_name")
+        _note_lookup(call, said=name, matched="", result="not_found")
+        if call.bump("pub_name") >= MAX_NAME_ATTEMPTS:
+            call.clear("pub_name")
             return Step(
                 say=[
-                    "I could not find that institution. "
-                    "You can check the AICTE website for the official list."
+                    "I could not find that college. You can check the AICTE website for the "
+                    "official list. Have a nice day. Goodbye."
                 ],
-                goto="pub_menu",
+                end=True,
             )
-        return Step(
-            say=["I could not find an institution with that name. Please try again."],
-            goto="pub_inst_name",
-        )
-    call.clear("pub_inst_name")
+        return Step(say=["I could not find a college with that name."], stay=True)
+    call.clear("pub_name")
     if len(results) == 1:
-        return await _answer_approval(call, results[0])
+        return await _answer_approval(call, results[0], said=name)
     call.slots["choices"] = results[:MAX_CHOICES]
+    call.slots["said"] = name
     return Step(say=[f"I found {len(call.slots['choices'])} matches."], goto="pub_pick")
 
 
@@ -143,21 +241,22 @@ async def pub_pick(call: CallState, inp: Input) -> Step:
     if chosen is None:
         if call.bump("pub_pick") >= 2:
             call.clear("pub_pick")
-            return Step(say=["Let us try that again."], goto="pub_inst_name")
+            return Step(say=["Let us try that again."], goto="pub_menu")
         return Step(say=["Sorry, please say or press the number."], stay=True)
     call.clear("pub_pick", "choices")
-    return await _answer_approval(call, choices[chosen - 1])
+    return await _answer_approval(call, choices[chosen - 1], said=call.slots.get("said", ""))
 
 
-async def _answer_approval(call: CallState, inst: dict[str, Any]) -> Step:
+async def _answer_approval(call: CallState, inst: dict[str, Any], *, said: str) -> Step:
     res = await call.tool("get_public_approval_status", {"institution_id": inst.get("id", "")})
     if not res.ok:
         return await tool_failed(call, res)
     data = res.data
-    name = inst.get("name", "That institution")
+    name = inst.get("name", "That college")
     year = data.get("academic_year", "the current academic year")
-    if data.get("approved"):
-        courses = list(data.get("courses") or [])
+    approved = bool(data.get("approved"))
+    courses = list(data.get("courses") or []) if approved else []
+    if approved:
         spoken = [
             f"{c.get('name')}, intake {c.get('intake')}" for c in courses[:MAX_COURSES_SPOKEN]
         ]
@@ -171,12 +270,25 @@ async def _answer_approval(call: CallState, inst: dict[str, Any]) -> Step:
             f"{name} is not listed as approved for {year}. "
             "For the official record, please check the AICTE website."
         )
-    call.slots["served"] = True
-    return Step(say=[text], goto="pub_menu")
+    call.slots["last_inst"] = {
+        "name": name,
+        "city": inst.get("city"),
+        "state": inst.get("state"),
+        "courses": [{"name": str(c.get("name")), "intake": c.get("intake")} for c in courses],
+        "status_text": text.split(" Approved courses")[0],
+    }
+    _note_lookup(
+        call,
+        said=said,
+        matched=name,
+        result="approved" if approved else "not_approved",
+        courses=", ".join(str(c.get("name")) for c in courses),
+    )
+    return Step(say=[text], goto="pub_more")
 
 
 # -- complaint ----------------------------------------------------------------------------------
-@node("pub_gv_inst", "Which institution is the complaint about?", open_ended=True)
+@node("pub_gv_inst", "Which college is the complaint about?", open_ended=True)
 async def pub_gv_inst(call: CallState, inp: Input) -> Step:
     call.slots["gv_inst"] = inp.text
     return Step(goto="pub_gv_desc")
@@ -218,11 +330,16 @@ async def file_grievance(call: CallState, inp: Input, *, from_text: bool, back: 
     res = await call.tool("create_grievance", args, confirmed=True)
     if not res.ok:
         return await tool_failed(call, res)
-    call.clear("gv_inst", "gv_desc", "gv_confirm")
     ticket = str(res.data.get("ticket_id", ""))
+    call.facts.update(
+        intent="complaint",
+        complaint_college=call.slots.get("gv_inst", ""),
+        complaint_ref=ticket,
+        complaint_text=desc,
+    )
+    call.clear("gv_inst", "gv_desc", "gv_confirm")
     say = ["Your complaint is filed."]
     if ticket:
-        say[0] += f" Your ticket number is {spell(ticket)}."
-        say.append("I will repeat it: " + spell(ticket) + ".")
-    call.slots["served"] = True
-    return Step(say=say, goto=back)
+        say[0] += f" Your reference number is {spell(ticket)}."
+    # The reference is given once, then the call is over: no "anything else?".
+    return Step(say=[*say, MSG_BYE], end=True)

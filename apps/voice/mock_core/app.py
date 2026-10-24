@@ -173,13 +173,51 @@ def reminder(body: dict[str, Any]) -> dict[str, Any]:
     return {"sent": bool(body.get("confirmed")), "subject_ref": body.get("subject_ref")}
 
 
+# Placeholder handbook content for demos. The real core searches the actual approval handbook.
+HANDBOOK = (
+    (
+        ("land", "lease", "plot", "acre"),
+        "4.2",
+        "Land documents must be valid for at least thirty years.",
+    ),
+    (
+        ("faculty", "teacher", "ratio"),
+        "5.1",
+        "The faculty to student ratio must meet the norms prescribed for each programme.",
+    ),
+    (
+        ("intake", "seats", "increase"),
+        "6.3",
+        "A change in intake is requested through the approval cycle and verified by a visiting committee.",
+    ),
+    (
+        ("fee", "fees"),
+        "7.1",
+        "Institutions may charge only the fee approved by the state fee regulatory committee.",
+    ),
+    (
+        ("apply", "application", "process", "procedure", "how to"),
+        "2.1",
+        "Applications are submitted online on the portal during the approval cycle and scrutinised by the regional office.",
+    ),
+    (
+        ("extension", "deadline", "more time"),
+        "9.4",
+        "Only the competent authority can grant an extension. An institution may request one, with its reasons.",
+    ),
+)
+
+
 @app.post(f"{P}/aph/search")
 def aph_search(body: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "results": [
-            {"section": "4.2", "text": "Land documents must be valid for at least 30 years."}
-        ]
-    }
+    """Answers only what it knows: no keyword match means no result, never a made-up answer."""
+    query = str(body.get("query", "")).lower()
+    hits = [
+        {"section": section, "text": text}
+        for words, section, text in HANDBOOK
+        if any(w in query for w in words)
+    ]
+    return {"results": hits}
 
 
 @app.post(f"{P}/upload-links")

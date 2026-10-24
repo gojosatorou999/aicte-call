@@ -63,7 +63,12 @@ class Settings(BaseSettings):
     # HMAC timestamp tolerance for core -> voice POST /voice/calls (V4).
     hmac_tolerance_sec: int = Field(default=300, ge=30, le=3600)
     caller_hash_pepper: SecretStr = SecretStr("dev-only-do-not-use-in-prod")
-    admin_api_key: SecretStr = SecretStr("")
+    # The admin dashboard (/admin): HTTP Basic auth. No password = the dashboard is switched off.
+    admin_user: str = "admin"
+    admin_password: SecretStr = SecretStr("")
+    # Where the call report is kept (SQLite for the dashboard) and the CSV rewritten after each call.
+    call_log_db: str = "data/calls.db"
+    call_log_csv: str = "data/calls.csv"
 
     # -- Core API (Track P) ----------------------------------------------
     # Base of the internal voice API, e.g. http://api:8000/internal/voice
@@ -250,7 +255,7 @@ class Settings(BaseSettings):
             "twilio_auth_token": self.twilio_auth_token.get_secret_value(),
             "twilio_voice_number": self.twilio_voice_number,
             "internal_service_token": self.internal_service_token.get_secret_value(),
-            "admin_api_key": self.admin_api_key.get_secret_value(),
+            "admin_password": self.admin_password.get_secret_value(),
             "llm_api_key": self.llm_api_key.get_secret_value(),
         }
         missing = [k for k, v in required.items() if not v]

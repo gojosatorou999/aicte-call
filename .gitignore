@@ -30,3 +30,6 @@ Thumbs.db
 
 # Local run state (logs, pids) written by scripts/start_all.ps1
 .run/
+
+# The call report (SQLite + CSV): holds what callers said. Local only, never committed.
+apps/voice/data/

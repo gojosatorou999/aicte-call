@@ -39,30 +39,31 @@ def connect(client, **claims):
     return ws, setup_msg(**claims)
 
 
-def test_public_caller_checks_an_institution_by_voice(live):
+def test_public_caller_says_a_college_name_and_hears_the_answer(live):
     client, _ = live()
     ws_cm, setup = connect(client)
     with ws_cm as ws:
         ws.send_text(setup)
-        # Twilio's welcomeGreeting already said hello, so we open straight with the menu.
-        assert reply_text(ws).startswith("How can I help?")
-        say(ws, "I want to check an institution")
-        assert "name of the institution" in reply_text(ws)
+        # Twilio's welcomeGreeting already said hello, so we open straight with the question.
+        assert reply_text(ws) == "Please say the name of the college."
         say(ws, "Sri Venkateswara")
         answer = reply_text(ws)
     # written for the eye, spoken for the ear
     assert "approved for 2026 to 27" in answer
     assert "B Tech C S E, intake 120" in answer and "B.Tech" not in answer
+    assert "anything else" not in answer.lower()
 
 
-def test_keypad_digit_answers_a_menu_question_immediately(live):
+def test_keypad_digit_answers_a_numbered_question_immediately(live):
     client, _ = live()
     ws_cm, setup = connect(client)
     with ws_cm as ws:
         ws.send_text(setup)
         reply_text(ws)
-        press(ws, "1")
-        assert "name of the institution" in reply_text(ws)
+        say(ws, "Sri")
+        assert "Which one?" in reply_text(ws)
+        press(ws, "2")
+        assert "Sri Sai College of Engineering is approved" in reply_text(ws)
 
 
 def test_keys_pressed_at_a_speech_question_are_ignored(live):
@@ -70,8 +71,6 @@ def test_keys_pressed_at_a_speech_question_are_ignored(live):
     ws_cm, setup = connect(client)
     with ws_cm as ws:
         ws.send_text(setup)
-        reply_text(ws)
-        say(ws, "check an institution")
         reply_text(ws)
         press(ws, "5")  # this question is answered by speaking
         say(ws, "Sri Venkateswara")
@@ -84,11 +83,11 @@ def test_partial_transcripts_are_ignored_until_the_final_one(live):
     with ws_cm as ws:
         ws.send_text(setup)
         reply_text(ws)
-        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "check an", "last": False}))
+        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "Sri Ven", "last": False}))
         ws.send_text(
-            json.dumps({"type": "prompt", "voicePrompt": "check an institution", "last": True})
+            json.dumps({"type": "prompt", "voicePrompt": "Sri Venkateswara", "last": True})
         )
-        assert "name of the institution" in reply_text(ws)
+        assert "is approved for" in reply_text(ws)
 
 
 def officer(client):
@@ -200,9 +199,21 @@ def test_silence_reprompts_then_ends_the_call(live):
         ws.send_text(setup)
         reply_text(ws)
         second = reply_text(ws)  # no answer -> "did not hear" + the question again
-        assert "did not hear anything" in second and "How can I help?" in second
+        assert "did not hear anything" in second and "Please say the name of the college" in second
         last = reply_text(ws)  # one reprompt allowed, then the polite goodbye
         assert "unable to hear you" in last
+        assert recv(ws) == {"type": "end"}
+
+
+def test_silence_after_an_answer_is_a_natural_end_not_a_reprompt(live):
+    client, _ = live(no_input_timeout_ms=20)
+    ws_cm, setup = connect(client)
+    with ws_cm as ws:
+        ws.send_text(setup)
+        reply_text(ws)
+        say(ws, "Sri Venkateswara")
+        assert "is approved for" in reply_text(ws)
+        assert "Have a nice day" in reply_text(ws)  # silence ends it politely
         assert recv(ws) == {"type": "end"}
 
 
@@ -261,8 +272,8 @@ def test_each_turn_logs_our_latency_without_the_caller_s_words(live, monkeypatch
     with ws_cm as ws:
         ws.send_text(setup)
         reply_text(ws)
-        say(ws, "check an institution please")
+        say(ws, "Sri Venkateswara")
         reply_text(ws)
     turns = [kw for event, kw in recorder.events if event == "live_turn"]
     assert turns and turns[0]["node"] == "pub_menu" and isinstance(turns[0]["ms"], int)
-    assert "check an institution please" not in repr(recorder.events)
+    assert "Sri Venkateswara" not in repr(recorder.events)

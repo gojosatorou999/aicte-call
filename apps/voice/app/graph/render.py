@@ -30,6 +30,7 @@ def spoken_lines(call: CallState, step: Step) -> list[str]:
         target = REGISTRY[step.goto] if step.goto else REGISTRY[call.node]
         call.node = target.id
         lines.append(target.prompt(call))
+    lines = [line for line in lines if line.strip()]  # a node may ask nothing at all
     for line in lines:
         call.note("assistant", line)
     return lines
@@ -68,9 +69,6 @@ def render(
         vr.hangup()
         return str(vr)
 
-    *intro, prompt = lines
-    for line in intro:
-        vr.say(line, voice=voice, language=_ENGLISH.bcp47)
     target = REGISTRY[call.node]
 
     options: dict[str, object] = {
@@ -94,7 +92,10 @@ def render(
     if not target.sensitive:
         options["barge_in"] = "true"  # let callers speak or key over the prompt
     gather = vr.gather(**options)
-    gather.say(prompt, voice=voice, language=_ENGLISH.bcp47)
+    # EVERY spoken line goes inside the Gather: audio nested in a Gather is what the caller can
+    # interrupt (a <Say> before it always plays to the end). The last line is the question.
+    for line in lines:
+        gather.say(line, voice=voice, language=_ENGLISH.bcp47)
     vr.redirect(turn_url(settings, target.id, call.key, noinput=True), method="POST")
     return str(vr)
 

@@ -37,6 +37,8 @@ async def create_call(
         token=token,
         runner=GatedToolRunner(ToolRunner(core, token, claims.persona), policy),
         job=job,
+        direction=claims.direction,
+        phone_masked=claims.phone_masked,
         hybrid_available=settings.conversation_mode == "hybrid" and settings.llm_enabled,
     )
 

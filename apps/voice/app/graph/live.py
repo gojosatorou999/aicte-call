@@ -26,6 +26,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app import relay_ws
 from app.agent.personas import OutboundJob
+from app.calllog import CallLog
 from app.config import Settings, get_settings
 from app.core_client import CoreClient
 from app.dial import DialStore
@@ -50,6 +51,7 @@ class LiveCall:
     settings: Settings
     store: StateStore
     jobs: dict[str, OutboundJob]
+    calllog: CallLog | None = None
     dials: DialStore | None = None  # lets the dial pad learn that the voice really connected
     call: CallState | None = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -81,6 +83,8 @@ class LiveCall:
             greeting=None,
         )
         log.info("live_connected")
+        if self.calllog:
+            self.calllog.upsert(self.call)
         try:
             await self._emit(first)
             while not self._done:
@@ -156,6 +160,8 @@ class LiveCall:
             ms=round((time.perf_counter() - started) * 1000),
             next=step.goto or ("end" if step.end else "same"),
         )
+        if self.calllog:
+            self.calllog.upsert(self.call, ended=step.end)
         await self._emit(step)
 
     # -- outbound ----------------------------------------------------------------------------
@@ -214,4 +220,5 @@ async def live(ws: WebSocket) -> None:
         store=state.calls,
         jobs=state.jobs,
         dials=state.dials,
+        calllog=state.calllog,
     ).run()

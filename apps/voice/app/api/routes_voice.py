@@ -101,6 +101,8 @@ async def _connect(
         if outbound
         else ivr.identity_source(caller, entered=entered),
         subject_id=caller.subject_id,
+        direction="outbound" if outbound else "inbound",
+        phone_masked=mask_msisdn(party),
     )
     token = mint_session(claims)
     try:
@@ -142,18 +144,21 @@ async def _connect(
             )
         )
     if mode != "relay":  # gather / hybrid: the deterministic graph over <Gather>
-        return _xml(
-            await start_call(
-                claims=claims,
-                token=token,
-                core=_core(request),
-                store=request.app.state.calls,
-                settings=settings,
-                job=job,
-                recording_callback=recording,
-                greeting=welcome,
-            )
+        xml = await start_call(
+            claims=claims,
+            token=token,
+            core=_core(request),
+            store=request.app.state.calls,
+            settings=settings,
+            job=job,
+            recording_callback=recording,
+            greeting=welcome,
         )
+        if (started := request.app.state.calls.get(call_sid)) is not None:
+            request.app.state.calllog.upsert(
+                started
+            )  # the call appears in the admin report at once
+        return _xml(xml)
     return _xml(
         twiml.relay(
             ws_url=_ws_url("/voice/relay"),

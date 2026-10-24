@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.graph.engine import Input, Kind, Step, node
 from app.graph.nodes.public import file_grievance, grievance_confirm_prompt
-from app.graph.nodes.util import tool_failed, unclear
+from app.graph.nodes.util import answer_from_handbook, tool_failed, unclear
 from app.graph.state import CallState
 from app.speech.intent import has_any
 
@@ -28,6 +28,8 @@ async def fac_menu(call: CallState, inp: Input) -> Step:
         return await _status(call)
     if has_any(t, "no", "nothing", "nope"):
         return Step(say=["Thank you for calling. Goodbye."], end=True)
+    if answer := await answer_from_handbook(call, t):
+        return answer
     return await unclear(call, "fac_menu", summary="Faculty caller's request was not understood.")
 
 

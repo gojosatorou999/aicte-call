@@ -402,7 +402,7 @@ def gather_call(api, **settings):
     twiml = client.post(path, data=form)
     assert twiml.status_code == 200, twiml.text
     action = ET.fromstring(twiml.text).find("Gather").get("action").removeprefix(PUBLIC_URL)
-    return client, action, {**form, "SpeechResult": "check an institution"}
+    return client, action, {**form, "SpeechResult": "Sri Venkateswara"}
 
 
 def test_every_action_url_carries_a_secret_per_call_key(api):
@@ -417,13 +417,11 @@ def test_unsigned_conversation_step_with_the_key_is_accepted_and_continues(api):
     r = client.post(action, data=form)  # no signature header, as the trial tier sends it
     assert r.status_code == 200
     nxt = ET.fromstring(r.text).find("Gather").get("action")
-    assert "n=pub_inst_name" in nxt  # the conversation moved on
-    assert (
-        client.post(
-            nxt.removeprefix(PUBLIC_URL), data={**form, "SpeechResult": "Sri Venkateswara"}
-        ).status_code
-        == 200
+    assert "n=pub_more" in nxt  # the conversation moved on (the college was looked up)
+    again = client.post(
+        nxt.removeprefix(PUBLIC_URL), data={**form, "SpeechResult": "which courses"}
     )
+    assert again.status_code == 200
 
 
 @pytest.mark.parametrize(

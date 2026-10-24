@@ -15,6 +15,7 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from app import clock
@@ -45,6 +46,13 @@ class CallState:
     token: str  # session JWT for core calls
     runner: GatedToolRunner
     node: str = ""
+    direction: str = "inbound"  # or "outbound" (a call the dial pad placed)
+    phone_masked: str = ""  # last four digits only; the raw number is never kept
+    started_at: datetime = field(
+        default_factory=lambda: clock.now()
+    )  # via the clock helper, so demo time applies
+    # What the call was about, for the admin dashboard / CSV (see calllog.py). Written by nodes.
+    facts: dict[str, Any] = field(default_factory=dict)
     # Secret carried in every action URL we hand Twilio for this call. It stands in for the
     # signature when Twilio's trial tier does not send one (see api/routes_graph.py).
     key: str = field(default_factory=lambda: secrets.token_urlsafe(16))

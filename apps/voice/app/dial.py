@@ -98,6 +98,16 @@ class SlidingWindow:
         self._limit, self._window = limit, window
         self._events: dict[str, deque[float]] = {}
 
+    def over(self, key: str) -> bool:
+        """Is `key` already at its limit? (Does not count as an event.)"""
+        q = self._events.get(key)
+        if not q:
+            return False
+        now = time.monotonic()
+        while q and now - q[0] > self._window:
+            q.popleft()
+        return len(q) >= self._limit
+
     def allow(self, key: str) -> bool:
         now = time.monotonic()
         q = self._events.setdefault(key, deque())

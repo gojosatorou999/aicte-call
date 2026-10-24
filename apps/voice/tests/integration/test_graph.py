@@ -43,25 +43,40 @@ def body(req) -> dict:
 
 
 # -- public ---------------------------------------------------------------------------------------
-def test_public_approval_lookup_without_any_llm(graph):
+def test_public_caller_only_says_a_college_name_and_hears_the_answer(graph):
     client, core = graph()
     phone = dial(client)
-    assert "AICTE assistant" in phone.turn.text and "How can I help" in phone.turn.prompt
+    assert "AICTE assistant" in phone.turn.text
+    assert phone.turn.prompt == "Please say the name of the college."  # no menu, nothing else asked
     assert phone.turn.node == "pub_menu"
     assert phone.turn.gather.get("bargeIn") == "true"
-
-    t = phone.say("I want to check an institution")
-    assert "name of the institution" in t.prompt
 
     t = phone.say("Sri Venkateswara")
     assert "Sri Venkateswara Institute of Technology is approved for 2026-27" in t.text
     assert "B.Tech CSE, intake 120" in t.text and "B.Tech ECE, intake 60" in t.text
-    assert "anything else" in t.prompt.lower()
+    assert t.node == "pub_more"
+    assert (
+        "anything else" not in t.text.lower()
+    )  # the answer is the last thing said: nothing more is asked
+    assert t.spoken_in_gather[-1].startswith("Sri Venkateswara Institute of Technology is approved")
     assert all(
         "/public/" in r.url.path
         for r in core.requests
         if "/callers/" not in r.url.path and "/calls" not in r.url.path
     )
+
+
+def test_every_spoken_line_is_inside_the_gather_so_the_caller_can_interrupt(graph):
+    client, _ = graph()
+    phone = dial(client)
+    assert phone.turn.root.findall("Say") == []  # greeting included: nothing outside the Gather
+    assert len(phone.turn.spoken_in_gather) == 2
+    t = phone.say("Sri Venkateswara")
+    assert t.root.findall("Say") == [] and len(t.spoken_in_gather) >= 1
+    t = phone.say(
+        "nothing nonexistent goodbye"
+    )  # an ending is allowed to be outside (nothing to interrupt)
+    assert t.ended
 
 
 def test_public_can_say_the_whole_question_at_once(graph):
@@ -71,10 +86,43 @@ def test_public_can_say_the_whole_question_at_once(graph):
     assert "is approved for 2026-27" in t.text
 
 
+def test_a_silent_line_after_the_answer_ends_the_call_politely(graph):
+    client, _ = graph()
+    phone = dial(client)
+    phone.say("Sri Venkateswara")
+    t = phone.silence()
+    assert t.ended and "Have a nice day" in t.text and "did not hear" not in t.text
+
+
+def test_the_caller_can_ask_questions_about_the_college_just_discussed(graph):
+    client, _ = graph()
+    phone = dial(client)
+    phone.say("Sri Venkateswara")
+    assert "approved for B.Tech CSE, B.Tech ECE" in phone.say("which courses does it have").text
+    assert "B.Tech CSE, 120 seats; B.Tech ECE, 60 seats" in phone.say("how many seats").text
+    assert "is in Anantapur, Andhra Pradesh" in phone.say("where is it located").text
+    assert "is approved for 2026-27" in phone.say("is it approved").text
+    t = phone.say("check another college")
+    assert t.node == "pub_menu" and t.prompt == "Please say the name of the college."
+    assert (
+        "Sri Sai College of Engineering is approved"
+        in phone.say("Sri Sai College of Engineering").text
+    )
+
+
+def test_rules_questions_are_answered_from_the_handbook_or_not_at_all(graph):
+    client, _ = graph()
+    phone = dial(client)
+    t = phone.say("what are the rules for land documents")
+    assert "From the approval handbook, section 4.2" in t.text and "officer decides" in t.text
+    # nothing in the handbook about this: it is searched as a college name, never answered with a guess
+    t = phone.say("what is the weather today")
+    assert "could not find a college" in t.text
+
+
 def test_public_multiple_matches_are_listed_and_picked_by_voice_or_keypad(graph):
     client, _ = graph()
     phone = dial(client)
-    phone.say("check an institution")
     t = phone.say("Sri")
     assert "I found 2 matches" in t.text
     assert "1: Sri Venkateswara Institute of Technology, Anantapur" in t.prompt
@@ -82,22 +130,21 @@ def test_public_multiple_matches_are_listed_and_picked_by_voice_or_keypad(graph)
     assert "Sri Sai College of Engineering is approved" in phone.press("2").text
 
     phone = dial(client, call_sid="CA2")
-    phone.say("check an institution")
     phone.say("Sri")
     assert "Venkateswara" in phone.say("the first one").text
 
 
-def test_public_unknown_institution_retries_then_gives_up_politely(graph):
+def test_public_unknown_college_retries_once_then_ends_politely(graph):
     client, _ = graph()
     phone = dial(client)
-    phone.say("check an institution")
     t = phone.say("Nonexistent University")
-    assert "could not find" in t.text and t.node == "pub_inst_name"
+    assert "could not find a college with that name" in t.text and t.node == "pub_menu"
+    assert t.prompt == "Please say the name of the college."
     t = phone.say("Nonexistent University")
-    assert "AICTE website" in t.text and t.node == "pub_menu"
+    assert t.ended and "AICTE website" in t.text and "Have a nice day" in t.text
 
 
-def test_public_complaint_is_read_back_then_filed_once_with_spelled_ticket(graph):
+def test_public_complaint_is_read_back_then_filed_and_the_call_ends_after_the_reference(graph):
     client, core = graph()
     phone = dial(client)
     phone.say("I want to file a complaint")
@@ -109,8 +156,9 @@ def test_public_complaint_is_read_back_then_filed_once_with_spelled_ticket(graph
     assert core.calls("POST", "/grievances") == []
 
     t = phone.say("yes")
-    assert "G, R, V" not in t.text  # separators are per part, see spell()
-    assert "ticket number is G R V, 2 0 2 6, 0 0 0 1" in t.text
+    assert t.ended  # no "anything else?": the call is over
+    assert t.text.count("G R V, 2 0 2 6, 0 0 0 1") == 1  # the reference is given once
+    assert "reference number is" in t.text and "Have a nice day" in t.text
     sent = body(core.calls("POST", "/grievances")[0])
     assert sent["category"] == "FAKE_COLLEGE" and sent["institution_ref"] == "Green Valley College"
     assert len(core.calls("POST", "/grievances")) == 1
@@ -123,26 +171,22 @@ def test_public_can_cancel_a_complaint(graph):
     phone.say("Some College")
     phone.say("The fees they charge are far more than allowed")
     t = phone.say("no")
-    assert "have not filed anything" in t.text
+    assert "have not filed anything" in t.text and not t.ended
     assert core.calls("POST", "/grievances") == []
 
 
 def test_public_lookup_limit_per_call(graph):
     client, _ = graph(public_lookups_per_call=1)
     phone = dial(client)
-    phone.say("check an institution")
     phone.say("Sri Venkateswara")
-    phone.say("check another institution")
-    t = phone.say("Sri Sai")
+    t = phone.say("Sri Sai College of Engineering")
     assert "only look up a few institutions" in t.text
 
 
-def test_unclear_menu_answers_end_in_an_officer_callback_without_llm(graph):
+def test_public_can_ask_for_an_officer(graph):
     client, core = graph()
     phone = dial(client)
-    assert "did not understand" in phone.say("banana").text
-    assert "did not understand" in phone.say("purple").text
-    t = phone.say("elephant")
+    t = phone.say("can I talk to an officer")
     assert t.ended and "asked an officer to call you back" in t.text
     assert body(core.calls("POST", "/callbacks")[0])["kind"] == "HANDOFF"
 
@@ -495,18 +539,18 @@ def test_asking_to_approve_is_refused_and_handed_off_without_leaving_the_menu(gr
 
 def test_goodbye_menu_repeat_and_officer_work_from_anywhere(graph):
     client, core = graph()
-    phone = dial(client)
-    phone.say("check an institution")
-    assert phone.say("repeat that").node == "pub_inst_name"
-    assert phone.say("main menu").node == "pub_menu"
+    phone = dial(client, INSTITUTION)  # an institution caller: the menu persona
+    assert phone.say("repeat that").node == "inst_menu"
     t = phone.say("can I talk to an officer")
+    assert t.ended
     assert (
-        t.ended
-        and body(core.calls("POST", "/callbacks")[0])["summary"]
+        body(core.calls("POST", "/callbacks")[0])["summary"]
         == "Caller asked to speak to an officer."
     )
 
-    phone = dial(client, call_sid="CA2")
+    phone = dial(client, INSTITUTION, call_sid="CA2")
+    assert phone.say("goodbye").ended
+    phone = dial(client, call_sid="CA3")  # the public line
     assert phone.say("goodbye").ended
 
 

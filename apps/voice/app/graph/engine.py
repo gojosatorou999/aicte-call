@@ -69,6 +69,9 @@ class Node:
     hints: str = ""
     open_ended: bool = False  # free text: only the abuse check applies
     sensitive: bool = False  # PIN/OTP: nothing is stored, no global rules
+    # Silence here is the natural end of the conversation (e.g. after an answer with nothing
+    # more asked): say goodbye and hang up instead of re-prompting.
+    end_on_silence: bool = False
 
 
 REGISTRY: dict[str, Node] = {}
@@ -84,6 +87,7 @@ def node(
     hints: str = "",
     open_ended: bool = False,
     sensitive: bool = False,
+    end_on_silence: bool = False,
 ) -> Callable[[Handler], Handler]:
     """Register `handler` as the handler of node `node_id`."""
 
@@ -99,6 +103,7 @@ def node(
             hints=hints,
             open_ended=open_ended,
             sensitive=sensitive,
+            end_on_silence=end_on_silence,
         )
         return handler
 
@@ -122,6 +127,7 @@ OFFICER = ("officer", "human", "person", "agent", "representative", "operator", 
 
 MSG_NO_INPUT = "Sorry, I did not hear anything."
 MSG_GOODBYE = "Thank you for calling. Goodbye."
+MSG_BYE = "Thank you for calling. Have a nice day. Goodbye."
 MSG_SILENCE_END = (
     "I am unable to hear you, so I will end the call. Please call again any time. Goodbye."
 )
@@ -176,7 +182,7 @@ async def _globals(call: CallState, n: Node, inp: Input) -> Step | None:
     if has_any(text, *REPEAT) and len(text.split()) <= 4:
         return Step(stay=True)
     if has_any(text, *GOODBYE):
-        return Step(say=[MSG_GOODBYE], end=True)
+        return Step(say=[MSG_BYE], end=True)
     if has_any(text, *MENU):
         return Step(goto=menu_for(call))
     if has_any(text, *OFFICER):
@@ -198,6 +204,8 @@ async def run_turn(
     if call.core_down:
         return Step(say=[MSG_TECHNICAL], end=True)
 
+    if (noinput or not inp.any.strip()) and n.end_on_silence:
+        return Step(say=[MSG_BYE], end=True)
     if noinput or not inp.any.strip():
         call.silence += 1
         if call.silence > settings.silence_reprompts:

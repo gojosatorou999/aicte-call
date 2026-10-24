@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__, dial, relay_ws
 from app.agent.llm import OpenAIChat
 from app.agent.tools import load_tool_specs
-from app.api import routes_dial, routes_graph, routes_health, routes_voice
+from app.api import routes_admin, routes_dial, routes_graph, routes_health, routes_voice
+from app.calllog import CallLog
 from app.config import get_settings
 from app.core_client import CoreClient
 from app.graph import live
@@ -46,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     llm = OpenAIChat(settings) if settings.llm_enabled else None
     app.state.core, app.state.llm = core, llm
     app.state.limiter = DailyLimiter(settings.public_calls_per_day)
+    app.state.calllog = CallLog(settings.call_log_db, settings.call_log_csv)
     app.state.dials = dial.DialStore()
     app.state.dial_guard = dial.DialGuard(settings)
     app.state.dialer = dial.Dialer(settings)
@@ -77,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_voice.router)
     app.include_router(routes_graph.router)
     app.include_router(routes_dial.router)
+    app.include_router(routes_admin.router)
     app.include_router(live.router)
     app.include_router(relay_ws.router)
     return app

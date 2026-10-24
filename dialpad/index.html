@@ -97,11 +97,6 @@
       <div class="hint">Spaces are fine &mdash; e.g. +91 98765 43210</div>
     </div>
 
-    <div class="field" id="scenarioField" hidden>
-      <label for="scenario">What should the call be about?</label>
-      <select id="scenario" name="scenario"></select>
-    </div>
-
     <div class="field" id="codeField" hidden>
       <label for="code">Access code</label>
       <input id="code" name="code" type="password" autocomplete="off" placeholder="Ask the organiser">
@@ -176,12 +171,6 @@
         $("dot").className = "dot up";
         $("backend").textContent = "Assistant is online";
         $("codeField").hidden = !r.data.code_required;
-        const scenarios = r.data.scenarios || {};
-        const names = Object.keys(scenarios);
-        $("scenarioField").hidden = names.length === 0;
-        $("scenario").replaceChildren(...names.map((k) => {
-          const o = document.createElement("option"); o.value = k; o.textContent = scenarios[k]; return o;
-        }));
         btn.disabled = r.data.enabled === false;
         if (r.data.enabled === false) show("err", "The dial pad is switched off right now.");
       } catch (e) {
@@ -240,7 +229,6 @@
       const body = new URLSearchParams({
         // Twilio needs strict E.164; the server also tidies this, this just saves a round trip.
         phone: phoneEl.value.replace(/[^\d+]/g, ""),
-        scenario: $("scenarioField").hidden ? "public" : $("scenario").value,
         code: $("code").value,
       });
       try {
