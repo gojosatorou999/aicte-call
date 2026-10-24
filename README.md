@@ -83,22 +83,32 @@ On the page you can also pick a **demo scenario** (public enquiry, institution r
 faculty) — it appears when `DEMO_SCENARIOS=true` in `.env`. The officer PIN is `246810` and the
 faculty code `123456`, typed on the keypad.
 
-### How good will it sound? (honest version)
+### What actually works today, and how it sounds (honest version)
 
-- **Voice and listening are Twilio's, streamed live** (ConversationRelay): your words are turned to
-  text as you speak, our reply is spoken by a neural voice, and you can talk over it. For English
-  (India) Twilio's documented default is an ElevenLabs voice, which we use unchanged. This is the
-  "real human voice" path; the basic `<Say>` voices of `CONVERSATION_MODE=gather` are not.
-- **Latency:** our part is small. Measured through your real ngrok address, each graph turn
-  (including the backend lookup) came back in **about 150–170 ms**. The rest — Twilio detecting
-  that you stopped talking, converting speech to text, and the voice starting to speak — happens at
-  Twilio/the voice vendor and **I cannot measure it from here**, so I will not promise a number.
-- **Not yet heard by a human.** I could not place a call (the account has no number yet), so the
-  first call is the real test. If recognition is poor, try in `.env`: `RELAY_STT_PROVIDER=Deepgram`
-  and `RELAY_STT_MODEL=nova-3-general`; if the voice is wrong, set `RELAY_TTS_PROVIDER` and
-  `RELAY_VOICE` (ElevenLabs ids accept a model suffix such as `-flash_v2_5` for speed). Restart the
-  service after changing `.env`. If live streaming is unavailable on your Twilio account, set
-  `CONVERSATION_MODE=gather` to fall back to basic voices.
+- **A real call has been made end to end** on a Twilio *trial* account: the dial pad rang a phone,
+  the person answered, held a 2-minute conversation (an institution lookup, then a complaint that
+  was saved in the backend), and hung up. This is the **Gather** mode (`CONVERSATION_MODE=gather`),
+  run the way the earlier Sentinel agent ran on this account: Twilio's own speech recognition
+  (`phone_call` model) and the **Polly neural en-IN** voice. It is natural-sounding for a phone
+  menu, but it is *not* the streaming, interruptible, human-like voice.
+- **Why not the human-sounding streaming voice yet:** that is Twilio ConversationRelay
+  (`CONVERSATION_MODE=live`, fully built and tested). On this trial account a call using it is answered
+  and then ended by Twilio within a second, before it ever connects to us. Twilio says the feature
+  needs the *AI/ML Features Addendum* accepted (Console → Voice → Settings → Privacy & Security); that
+  setting could not be found on the trial, and a trial hides Twilio's own error records, so the exact
+  cause is unconfirmed. After upgrading the account, set `CONVERSATION_MODE=live` and try again; the
+  dial pad explains the failure if it still happens.
+- **Speed:** our share of each reply is small (about 150–170 ms through your ngrok address, including
+  the backend lookup). Twilio's speech recognition then waits for a natural pause before it passes
+  your words on, which is the delay you hear in Gather mode; I cannot measure that from here.
+- **Trial limits that shape this:** Twilio's trial tier sends its webhooks **unsigned** and refuses
+  optional call settings (status callbacks, call recording). The service copes (see
+  `docs/DECISIONS.md`): calls are placed with only the basics, progress is polled, and unsigned
+  requests are accepted only with a one-time id / per-call secret key. Once the account is upgraded,
+  set `DIAL_ACCEPT_UNSIGNED_TWIML=false` and `RECORD_CALLS=true`.
+- **Demo data:** the backend is a mock with two made-up institutions — *Sri Venkateswara Institute of
+  Technology* (Anantapur) and *Sri Sai College of Engineering* (Chennai). Any other name (a real
+  college, say) is correctly reported as "not found". Say "Sri" to hear both.
 
 ---
 
@@ -233,8 +243,8 @@ rather than guessed around.
 
 | Mode | What drives the conversation | Voice | OpenAI/LLM at call time? |
 |---|---|---|---|
-| **`live`** *(what your `.env` uses)* | The deterministic graph over Twilio **ConversationRelay**: streaming speech-to-text, barge-in, keypad for PIN/OTP | Neural, human-sounding (Twilio's en-IN default) | **No** |
-| `gather` *(code default)* | The same graph over Twilio `<Gather>` / `<Say>` — simplest, nothing to enable | Basic Twilio/Google voice | **No** |
+| `live` *(needs an upgraded Twilio account)* | The deterministic graph over Twilio **ConversationRelay**: streaming speech-to-text, barge-in, keypad for PIN/OTP | Neural, human-sounding (Twilio's en-IN default) | **No** |
+| **`gather`** *(code default; what your `.env` uses; proven on the trial account)* | The same graph over Twilio `<Gather>` / `<Say>` — nothing to enable | Polly neural en-IN | **No** |
 | `relay` | An LLM writes every reply, over ConversationRelay | Neural | Yes — needs `LLM_API_KEY` |
 | `hybrid` | The `gather` graph leads. If it can't understand the caller after a few tries (or has a rules question), the call is handed to the LLM relay; saying "main menu" returns to the graph. A caller already verified by the graph is *not* asked for their PIN again | Basic, then neural | Only as a fallback, and only if `LLM_API_KEY` is set. Without a key `hybrid` behaves like `gather` |
 
@@ -376,7 +386,7 @@ Settings come from environment variables or `apps/voice/.env`. The full annotate
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CONVERSATION_MODE` | `gather` (your `.env`: `live`) | `live` · `gather` · `relay` · `hybrid` ([§3](#the-modes-conversation_mode)) |
+| `CONVERSATION_MODE` | `gather` | `live` · `gather` · `relay` · `hybrid` ([§3](#the-modes-conversation_mode)) |
 | `ENABLED_LANGUAGES` | `en` | English only. `en,hi,te,ml,ta,kn` restores the six-language menu (Indian-language speech quality is unverified) |
 | `PUBLIC_VOICE_URL` | `http://localhost:8080` | Public https URL Twilio reaches; signature checks use it |
 | `TWILIO_AUTH_TOKEN` | – | Verifies webhooks |
@@ -505,7 +515,7 @@ or anything about the real core API. See the next sections.
 
 ## 13. Known limitations — read before a demo
 
-- **Never heard on a real call.** Verified against simulated Twilio traffic, and the signed webhook plus WebSocket have been exercised through the real ngrok address — but no phone has rung yet (the Twilio account has no number at the time of writing). Voice quality, recognition accuracy of Indian accents and end-to-end latency are therefore **unmeasured**. Two specific unknowns: whether ConversationRelay is enabled on your Twilio account (if not, use `CONVERSATION_MODE=gather`), and whether Twilio's default en-IN speech-to-text is best for your callers (see the `RELAY_*` settings).
+- **Tested on one real call, by one person.** A 2-minute dial-pad call on a Twilio trial account worked end to end in Gather mode (see "What actually works today"). Recognition accuracy for different accents, the streaming `live` voice, and real-world latency are **not yet measured**; `live` mode needs an upgraded Twilio account with ConversationRelay enabled.
 - **The dial pad is a public page that can cost money.** Anyone who finds it can ask your Twilio account to place a call to a number inside the allowed prefix. A *trial* account limits that to numbers you verified; **a paid account does not**. Before upgrading, set `DIAL_PAD_TOKEN`, keep the limits low, and consider restricting `DIAL_ALLOWED_PREFIXES`.
 - **Speech recognition is Twilio's.** Names of colleges and unusual dates are the likeliest misrecognitions — which is why every date and every filed item is read back for a yes/no before it's saved.
 - **English only.** Hindi and the four southern languages are written but switched off (`ENABLED_LANGUAGES`); their speech quality and translations were never reviewed by a native speaker.
