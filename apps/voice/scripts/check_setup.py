@@ -13,6 +13,9 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # make `app` importable from scripts/
 
 import httpx
 from twilio.base.exceptions import TwilioRestException
@@ -129,10 +132,13 @@ def check_twilio(s: Settings, r: Report) -> None:
     elif any(v.phone_number == s.twilio_voice_number for v in verified_ids):
         r.ok(f"{mask(s.twilio_voice_number)} is one of your verified caller IDs")
     else:
-        r.fail(
-            f"{mask(s.twilio_voice_number)} is not a number on this Twilio account",
-            "set TWILIO_VOICE_NUMBER to a number under Phone Numbers -> Active numbers",
+        have = [n.phone_number for n in client.incoming_phone_numbers.list(limit=20)]
+        hint = (
+            f"this account's numbers end in: {', '.join(mask(n)[-4:] for n in have)} - set TWILIO_VOICE_NUMBER to one of them (full +E.164 form)"
+            if have
+            else "this account has no phone number yet: Console -> Phone Numbers -> Manage -> Buy a number (a trial gives one free)"
         )
+        r.fail(f"{mask(s.twilio_voice_number)} is not a number on this Twilio account", hint)
 
     if account.type == "Trial":
         numbers = ", ".join(mask(v.phone_number) for v in verified_ids) or "none yet"

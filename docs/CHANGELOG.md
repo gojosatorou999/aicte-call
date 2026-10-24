@@ -65,3 +65,15 @@
   built from `pyproject.toml` passes the whole suite.
 - One shared `TranscriptLine`; dropped the unused `Input.confidence`; tidied `routes_graph`.
 - Ran `ruff format` over the project (mechanical, no behaviour change).
+
+## Dial pad, live voice mode, GitHub Pages
+
+- `POST /dial/call`, `GET /dial/config`, `GET /dial/status/<sid>`, `POST /voice/outbound-twiml`:
+  the page asks, Twilio rings, the conversation starts when the person answers.
+- `CONVERSATION_MODE=live`: the graph over ConversationRelay (`/voice/live`) with streaming
+  speech-to-text, Twilio's default human en-IN voice, barge-in, keypad-only PIN/OTP; no LLM.
+- `dialpad/` page + workflow publishing it to GitHub Pages; CORS for that origin.
+- `scripts/start_all.ps1` (backend + service + ngrok + check) and `scripts/check_setup.py`
+  (read-only preflight against Twilio, the tunnel, CORS and the page).
+- Safeguards for the public page: prefix allow-list, rate limits, optional access code.
+- Tests: 283.

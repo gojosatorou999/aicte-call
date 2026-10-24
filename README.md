@@ -6,15 +6,17 @@ overdue paperwork. This repository is **Track V — the voice service** (`apps/v
 the portal (web app, workflow engine, database — "Track P") is specified in [`app.md`](./app.md)
 but is **not in this repo**; until it exists the voice service talks to a small built-in mock.
 
-> **The short version:** by default **no OpenAI (or any LLM) is in the call path.** The
-> conversation is a fixed, testable graph of questions built on Twilio's `<Gather>` speech/keypad
-> input. An LLM is an optional extra for open-ended questions (`hybrid` mode) and is off unless
-> you give it a key.
+> **The short version:** open the dial pad page, type your phone number, press *Call me now* —
+> the agent rings your phone and you talk to it. The conversation is a **fixed, testable graph of
+> questions, with no OpenAI (or any LLM) in the call path**, spoken by a human-sounding streaming
+> voice that you can interrupt. An LLM is an optional extra (`hybrid`/`relay` modes) and is off
+> unless you give it a key.
 
 ---
 
 ## Contents
 
+0. [**Start here: make the dial pad call you**](#start-here-make-the-dial-pad-call-you)
 1. [What it does](#1-what-it-does)
 2. [A call, start to finish (real output)](#2-a-call-start-to-finish-real-output)
 3. [How it works](#3-how-it-works)
@@ -28,6 +30,74 @@ but is **not in this repo**; until it exists the voice service talks to a small 
 11. [Tests](#11-tests)
 12. [Status: what is and is not built](#12-status-what-is-and-is-not-built)
 13. [Known limitations — read before a demo](#13-known-limitations--read-before-a-demo)
+
+---
+
+## Start here: make the dial pad call you
+
+```
+ you open the page            the page asks the service         the service asks Twilio
+ gojosatorou999.github.io ──► POST /dial/call (via ngrok) ───► "ring this number"
+        ▲                                                            │
+        │ shows "Ringing… / Connected"                               ▼
+        └──────── GET /dial/status ◄──── service ◄──────────── Twilio rings your phone
+                                            ▲   you answer; Twilio fetches /voice/outbound-twiml
+                                            └── then streams the call over a WebSocket (/voice/live)
+```
+
+The same idea as the earlier Sentinel dial pad: a public web page, a backend behind an ngrok
+address, and Twilio doing the ringing. **Nothing has to be pasted into Twilio for this**: each call
+carries its own webhook address, built from `PUBLIC_VOICE_URL`.
+
+| What | Value |
+|---|---|
+| **Dial pad page** (GitHub Pages) | https://gojosatorou999.github.io/aicte-call/ |
+| **Backend address** (your permanent ngrok address) | `https://rehydrate-alongside-shampoo.ngrok-free.dev` |
+| **TwiML URL Twilio fetches when you answer** (built automatically per call) | `https://rehydrate-alongside-shampoo.ngrok-free.dev/voice/outbound-twiml?d=<id>` |
+| Only if you also want to *receive* calls on the Twilio number: *A call comes in* → Webhook, POST | `https://rehydrate-alongside-shampoo.ngrok-free.dev/voice/inbound` |
+
+### Do these once — where each thing goes
+
+| # | Do this | Where | State |
+|---|---|---|---|
+| 1 | **Get a Twilio phone number** on your account (Phone Numbers → Manage → Buy a number; a trial includes one) | console.twilio.com | **You: needed.** The preflight found *no number* on the account whose credentials are in `.env` |
+| 2 | Put that number, in `+E.164` form (e.g. `+14155552671`), in **`TWILIO_VOICE_NUMBER`** | `apps/voice/.env` | **You** |
+| 3 | **Verify your own phone** so a *trial* account may call it (Phone Numbers → Manage → Verified Caller IDs → Add) | console.twilio.com | **You: needed on a trial account** |
+| 4 | Allow calls to India: Voice → Settings → **Geo permissions** → tick *India* | console.twilio.com | **You: check** |
+| 5 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | `apps/voice/.env` | Done — Twilio accepted them |
+| 6 | ngrok authtoken | stored by ngrok on this PC (`ngrok config add-authtoken …`) — **not in this project** | Done |
+| 7 | Backend address | `PUBLIC_VOICE_URL` in `apps/voice/.env` **and** `api` in `dialpad/config.js` | Done (both set) |
+| 8 | Optional access code so strangers can't use your page: set `DIAL_PAD_TOKEN` | `apps/voice/.env` | Recommended before you share the link |
+
+### Every time you demo
+
+```powershell
+.\scripts\start_all.ps1        # starts the stand-in backend, the voice service and the ngrok tunnel,
+                               # then runs a read-only check and tells you anything still missing
+```
+Then open the dial pad page, enter your number, press **Call me now**, and answer. Stop everything
+with `.\scripts\start_all.ps1 -Stop`. The check can be run alone: `python scripts/check_setup.py`.
+
+On the page you can also pick a **demo scenario** (public enquiry, institution reminder, officer,
+faculty) — it appears when `DEMO_SCENARIOS=true` in `.env`. The officer PIN is `246810` and the
+faculty code `123456`, typed on the keypad.
+
+### How good will it sound? (honest version)
+
+- **Voice and listening are Twilio's, streamed live** (ConversationRelay): your words are turned to
+  text as you speak, our reply is spoken by a neural voice, and you can talk over it. For English
+  (India) Twilio's documented default is an ElevenLabs voice, which we use unchanged. This is the
+  "real human voice" path; the basic `<Say>` voices of `CONVERSATION_MODE=gather` are not.
+- **Latency:** our part is small. Measured through your real ngrok address, each graph turn
+  (including the backend lookup) came back in **about 150–170 ms**. The rest — Twilio detecting
+  that you stopped talking, converting speech to text, and the voice starting to speak — happens at
+  Twilio/the voice vendor and **I cannot measure it from here**, so I will not promise a number.
+- **Not yet heard by a human.** I could not place a call (the account has no number yet), so the
+  first call is the real test. If recognition is poor, try in `.env`: `RELAY_STT_PROVIDER=Deepgram`
+  and `RELAY_STT_MODEL=nova-3-general`; if the voice is wrong, set `RELAY_TTS_PROVIDER` and
+  `RELAY_VOICE` (ElevenLabs ids accept a model suffix such as `-flash_v2_5` for speed). Restart the
+  service after changing `.env`. If live streaming is unavailable on your Twilio account, set
+  `CONVERSATION_MODE=gather` to fall back to basic voices.
 
 ---
 
@@ -158,13 +228,14 @@ whether the caller is verified). Silence is re-prompted twice then the call ends
 repeated misunderstanding ends in an officer call-back; a core outage is explained honestly
 rather than guessed around.
 
-### The three modes (`CONVERSATION_MODE`)
+### The modes (`CONVERSATION_MODE`)
 
-| Mode | What drives the conversation | OpenAI/LLM at call time? |
-|---|---|---|
-| **`gather`** *(default)* | The deterministic graph above | **No** |
-| `relay` | An LLM writes every reply, over Twilio ConversationRelay (a WebSocket) | Yes — needs `LLM_API_KEY` |
-| `hybrid` | The graph leads. If it can't understand the caller after a few tries (or has a rules question), the call is handed to the LLM relay; saying "main menu" returns to the graph. A caller already verified by the graph is *not* asked for their PIN again | Only as a fallback, and only if `LLM_API_KEY` is set. Without a key `hybrid` behaves like `gather` |
+| Mode | What drives the conversation | Voice | OpenAI/LLM at call time? |
+|---|---|---|---|
+| **`live`** *(what your `.env` uses)* | The deterministic graph over Twilio **ConversationRelay**: streaming speech-to-text, barge-in, keypad for PIN/OTP | Neural, human-sounding (Twilio's en-IN default) | **No** |
+| `gather` *(code default)* | The same graph over Twilio `<Gather>` / `<Say>` — simplest, nothing to enable | Basic Twilio/Google voice | **No** |
+| `relay` | An LLM writes every reply, over ConversationRelay | Neural | Yes — needs `LLM_API_KEY` |
+| `hybrid` | The `gather` graph leads. If it can't understand the caller after a few tries (or has a rules question), the call is handed to the LLM relay; saying "main menu" returns to the graph. A caller already verified by the graph is *not* asked for their PIN again | Basic, then neural | Only as a fallback, and only if `LLM_API_KEY` is set. Without a key `hybrid` behaves like `gather` |
 
 Even in `relay`/`hybrid`, the LLM is fenced in by code (the same policy rules as the graph;
 see [§8](#8-safety-rules-the-code-enforces)): it cannot see tools the caller isn't cleared for,
@@ -184,19 +255,19 @@ has ended, not during it.
 | **Python 3.12** | Not 3.13. On Windows, if `python` isn't found, call the interpreter by its full path or add it to PATH |
 | That's it | No Twilio, no ngrok, no OpenAI. The built-in mock core stands in for the real backend and `simulate_call.py` stands in for the phone |
 
-### To take real phone calls (default `gather` mode)
+### To take real phone calls (`live` or `gather` mode)
 
 | # | What | Where you get it | Goes in |
 |---|---|---|---|
 | 1 | **A Twilio account** (a free trial is enough to start) | twilio.com/try-twilio | – |
-| 2 | **A voice-capable Twilio phone number** | Twilio Console → Phone Numbers → Buy a number (trial credit covers one). Check the number type is supported for your country; calling a US number from India is an international call | the number's webhook settings (§6), no env var needed yet |
-| 3 | **Twilio Auth Token** | Twilio Console → Account Info → *Auth Token* (click to reveal) | `TWILIO_AUTH_TOKEN` — used to verify webhooks really came from Twilio |
-| 4 | **A public HTTPS URL to your laptop** — **ngrok** *or* cloudflared | ngrok.com → sign up → *Your Authtoken* in the dashboard. (Free ngrok accounts can claim one free static domain, which saves re-pasting URLs every restart) | `ngrok config add-authtoken <token>` (stored by ngrok, not in this project) and then `PUBLIC_VOICE_URL=https://<your-domain>` |
-| 5 | **Secrets you invent** | Run `python -c "import secrets; print(secrets.token_urlsafe(32))"` once per value | `INTERNAL_SERVICE_TOKEN`, `SESSION_JWT_SECRET`, `CALLER_HASH_PEPPER` (and `ADMIN_API_KEY` in production only) |
+| 2 | **A voice-capable Twilio phone number** on that account — the number the agent calls *from* | Twilio Console → Phone Numbers → Manage → Buy a number (a trial includes one). Calling Indian numbers from a US number is an international call | `TWILIO_VOICE_NUMBER` (`+E.164`) |
+| 3 | **Account SID** and **Auth Token** | Twilio Console home → Account Info (click to reveal the token) | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` — needed to place calls, and to verify that webhooks really came from Twilio |
+| 4 | **Your own phone verified** (trial accounts only) | Console → Phone Numbers → Manage → Verified Caller IDs | – (a trial can only ring verified numbers) |
+| 5 | **A public HTTPS URL to your laptop** — **ngrok** *or* cloudflared | ngrok.com → sign up → *Your Authtoken* in the dashboard. A free account has one permanent domain, so the address never changes | `ngrok config add-authtoken <token>` (stored by ngrok, not in this project), then `PUBLIC_VOICE_URL=https://<your-domain>` and `api` in `dialpad/config.js` |
+| 6 | **Secrets you invent** | Run `python -c "import secrets; print(secrets.token_urlsafe(32))"` once per value | `INTERNAL_SERVICE_TOKEN`, `SESSION_JWT_SECRET`, `CALLER_HASH_PEPPER` (and `ADMIN_API_KEY` in production only) |
 
-**You do not need:** an OpenAI key (default mode), a Twilio *Account SID* or API keys (the
-service only *answers* calls for now; it doesn't call the Twilio REST API yet), Redis, a
-database.
+**You do not need:** an OpenAI key (`live` and `gather` modes), Twilio API keys (the Account SID and
+Auth Token are enough), Redis, a database.
 
 ### Where each key goes
 
@@ -205,14 +276,17 @@ There is exactly one file: **`apps/voice/.env`**. Create it with `copy .env.exam
 
 | Key | Put it in | Variable |
 |---|---|---|
+| Twilio Account SID | `apps/voice/.env` | `TWILIO_ACCOUNT_SID` |
 | Twilio Auth Token | `apps/voice/.env` | `TWILIO_AUTH_TOKEN` |
-| Your public ngrok URL (not a secret) | `apps/voice/.env` **and** the Twilio console webhook fields (§6) | `PUBLIC_VOICE_URL` |
+| Twilio phone number (the agent's number) | `apps/voice/.env` | `TWILIO_VOICE_NUMBER` |
+| Your public ngrok address (not a secret) | `apps/voice/.env` **and** `dialpad/config.js` | `PUBLIC_VOICE_URL`, `api` |
 | ngrok authtoken | **Not in this project.** Run `ngrok config add-authtoken <token>` once; ngrok keeps it in its own config file | – |
 | Secrets you invent (3) | `apps/voice/.env` | `INTERNAL_SERVICE_TOKEN`, `SESSION_JWT_SECRET`, `CALLER_HASH_PEPPER` |
-| OpenAI key (optional) | `apps/voice/.env` | `LLM_API_KEY` |
-| Twilio Account SID, number (later, outbound) | `apps/voice/.env` | `TWILIO_ACCOUNT_SID`, `TWILIO_VOICE_NUMBER` |
+| Dial pad access code (optional) | `apps/voice/.env` | `DIAL_PAD_TOKEN` |
+| OpenAI key (optional, `relay`/`hybrid` only) | `apps/voice/.env` | `LLM_API_KEY` |
 
-Nothing goes in source code, in `README.md`, or in chat.
+Nothing goes in source code, in `README.md`, or in chat. (If a token has been pasted into a chat or
+a ticket, treat it as exposed and reset it in the provider's dashboard.)
 
 ### Only if you switch on the LLM (`relay` / `hybrid`)
 
@@ -224,9 +298,9 @@ Nothing goes in source code, in `README.md`, or in chat.
 
 | What | For |
 |---|---|
-| Twilio **Account SID** + the number in E.164 form | **Outbound** calls ("we're calling about your overdue lease") — phase V4. On a trial account you can only dial numbers you've verified in the Twilio console |
 | Twilio SMS sender | Texting ticket numbers / upload links |
 | The real core API's URL and token | Replacing the mock (Track P, phase P8) |
+| Calling hours, retries, answering-machine detection | Calls triggered by the core API rather than by the dial pad (phase V4) |
 | Production secrets + a deployment host | Phase V7 |
 
 > **Never commit real keys.** `.env` files are in `.gitignore`. This repository is **public**.
@@ -270,31 +344,27 @@ to stay quiet, `/quit` to hang up. Check the service is up with `curl localhost:
 
 ## 6. Take real phone calls (Twilio + ngrok)
 
-1. **Install & configure.** Do the install from §5, then
-   `copy .env.example .env` (in `apps/voice`) and fill in `TWILIO_AUTH_TOKEN`, the three
-   invented secrets, and leave `TWILIO_SIGNATURE_VALIDATION_ENABLED=true`.
-2. **Start the backend stand-in and the service** (terminals 1 and 2 from §5, *without* the
-   `$env:TWILIO_SIGNATURE_VALIDATION_ENABLED = "false"` line).
-3. **Expose it:**
-   ```powershell
-   ngrok config add-authtoken <your-ngrok-authtoken>   # once
-   ngrok http 8080                                     # with a static domain: ngrok http --url=<your-domain> 8080  (older ngrok: --domain)
-   ```
-   Copy the `https://….ngrok-free.app` address into `PUBLIC_VOICE_URL` in `.env` and
-   **restart the voice service**. This must match exactly what you give Twilio — signatures are
-   computed over that host. (Free random ngrok URLs change on every restart; a static domain
-   avoids repeating this.)
-4. **Point the Twilio number at it.** Twilio Console → Phone Numbers → *your number* → Voice
-   Configuration:
-   - *A call comes in* → **Webhook**, `POST`, `https://<your-url>/voice/inbound`
-   - *Call status changes* → `POST`, `https://<your-url>/voice/status`
-5. **Call the number.** You should hear the greeting and the menu. Watch the service terminal:
-   it logs each step as JSON (never phone numbers, PINs or what you said).
+The fast path is **[Start here](#start-here-make-the-dial-pad-call-you)**. The manual version:
 
-**On a Twilio trial account** callers may hear a short Twilio announcement before your service answers (check Twilio's trial-account notes).
-**If calls fail:** `403` in the logs means the signature check failed — usually
-`PUBLIC_VOICE_URL` doesn't match the URL in the Twilio console, or the Auth Token is wrong;
-Twilio Console → Monitor → Logs → Errors shows what Twilio saw.
+1. **Install & configure.** Do the install from §5, then `copy .env.example .env` in `apps/voice`
+   and fill it in (the file explains every line). Keep `TWILIO_SIGNATURE_VALIDATION_ENABLED=true`.
+2. **Start the stand-in backend and the service** — or just run `scripts\start_all.ps1`, which also
+   starts the tunnel and runs the check. By hand, terminals 1 and 2 from §5 *without* the line that
+   turns signature checks off.
+3. **Expose it.** `ngrok config add-authtoken <token>` once, then
+   `ngrok http 8080 --url=<your-ngrok-domain>` (older ngrok: `--domain`). Free ngrok accounts have
+   one permanent domain; with it the address never changes. `PUBLIC_VOICE_URL` must be exactly that
+   address — Twilio's signature is computed over it.
+4. **Outbound ("call me")** needs nothing in the Twilio console. **To also answer calls made to your
+   Twilio number**, set the number's *A call comes in* → Webhook, `POST`, `<your-url>/voice/inbound`,
+   and *Call status changes* → `<your-url>/voice/status`.
+5. **Watch the service log** (`apps\voice\.run\voice.log` if started by the script): JSON lines, never
+   phone numbers, PINs or what anyone said — only step names and our per-turn latency (`live_turn`).
+
+**On a Twilio trial account** a call may start with a short Twilio announcement, and only *verified*
+numbers can be called. **If calls fail:** a `403` in the log means the signature check failed —
+usually `PUBLIC_VOICE_URL` differs from the address in use, or the Auth Token is wrong; Twilio Console →
+Monitor → Logs → Errors shows what Twilio saw. `python scripts/check_setup.py` finds the common causes.
 
 ---
 
@@ -305,7 +375,7 @@ Settings come from environment variables or `apps/voice/.env`. The full annotate
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CONVERSATION_MODE` | `gather` | `gather` · `relay` · `hybrid` ([§3](#the-three-modes-conversation_mode)) |
+| `CONVERSATION_MODE` | `gather` (your `.env`: `live`) | `live` · `gather` · `relay` · `hybrid` ([§3](#the-modes-conversation_mode)) |
 | `ENABLED_LANGUAGES` | `en` | English only. `en,hi,te,ml,ta,kn` restores the six-language menu (Indian-language speech quality is unverified) |
 | `PUBLIC_VOICE_URL` | `http://localhost:8080` | Public https URL Twilio reaches; signature checks use it |
 | `TWILIO_AUTH_TOKEN` | – | Verifies webhooks |
@@ -315,6 +385,14 @@ Settings come from environment variables or `apps/voice/.env`. The full annotate
 | `SESSION_JWT_SECRET` | derived | Signs per-call session tokens |
 | `CALLER_HASH_PEPPER` | dev value | Phone numbers are stored only as HMAC hashes; production refuses the dev value |
 | `LLM_API_KEY` / `LLM_MODEL` | – / `gpt-4o-mini` | Only for `relay` / `hybrid` |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_VOICE_NUMBER` | – | Needed to place calls: the account and the Twilio number the agent calls *from* (`+E.164`) |
+| `DIAL_PAD_TOKEN` | empty | Optional access code the page asks for |
+| `DIAL_ALLOWED_PREFIXES` | `+91` | Only these country prefixes can be dialled (empty = any) |
+| `DIAL_PER_NUMBER_PER_HOUR` / `DIAL_PER_IP_PER_HOUR` / `DIAL_GLOBAL_PER_DAY` | `3` / `10` / `100` | Limits protecting your Twilio balance |
+| `DIALPAD_ALLOWED_ORIGINS` | the github.io page + localhost | Browser origins allowed to call the API (CORS) |
+| `DEMO_SCENARIOS` | `false` (your `.env`: `true`) | Dial pad offers public / institution / officer / faculty demo calls (mock data only; refused in production) |
+| `RELAY_TTS_PROVIDER` / `RELAY_VOICE` / `RELAY_STT_PROVIDER` / `RELAY_STT_MODEL` | empty | Empty = Twilio's default for en-IN. Override only after hearing a call |
+| `RELAY_INTERRUPT_SENSITIVITY` / `RELAY_IGNORE_BACKCHANNEL` | `medium` / `true` | How easily the caller can cut in; ignore "mm-hmm" while the agent talks |
 | `COMMITMENT_MAX_DAYS` | `30` | Furthest date a caller may *commit* to; anything later can only be an extension *request* |
 | `PIN_MAX_ATTEMPTS` / `OTP_MAX_ATTEMPTS` | `3` | Wrong codes before the call is ended |
 | `PUBLIC_LOOKUPS_PER_CALL` / `PUBLIC_CALLS_PER_DAY` | `5` / `10` | Abuse limits for anonymous callers |
@@ -350,7 +428,10 @@ These are enforced in Python, not just asked of a model, so they hold in every m
 | `POST /voice/g/turn?n=<node>` | Twilio | One caller answer in the Gather graph |
 | `POST /voice/g/resume` | Twilio | Back to the graph after an LLM-relay detour (hybrid) |
 | `POST /voice/status` · `/voice/recording` | Twilio | Call status and recording callbacks, forwarded to core |
+| `POST /voice/outbound-twiml?d=<id>` | Twilio, when the person answers | Starts the conversation for a call the dial pad placed |
+| `WS /voice/live` | Twilio ConversationRelay | The graph conversation with streaming speech (`live` mode) |
 | `WS /voice/relay` | Twilio ConversationRelay | LLM conversation (`relay`/`hybrid` only) |
+| `GET /dial/config` · `POST /dial/call` · `GET /dial/status/<sid>` | the dial pad page | What to show; place the call; follow it (ringing → connected → ended) |
 
 The contract with the core API is in [`app.md`](./app.md) §13.13 and the tool list in
 [`packages/contracts/voice-tools.json`](./packages/contracts/voice-tools.json).
@@ -363,6 +444,9 @@ The contract with the core API is in [`app.md`](./app.md) §13.13 and the tool l
 app.md                     the full product spec (all tracks); this repo implements Track V
 docs/DECISIONS.md          every judgement call made where the spec was silent — read this
 docs/CHANGELOG.md          what each phase added
+dialpad/                   the web page (index.html + config.js) deployed to GitHub Pages
+scripts/start_all.ps1      starts backend + service + tunnel, runs the check
+.github/workflows/pages.yml  publishes dialpad/ to https://gojosatorou999.github.io/aicte-call/
 packages/contracts/        voice-tools.json — the tool list shared with the core API
 apps/voice/
   app/
@@ -370,13 +454,16 @@ apps/voice/
     api/                   HTTP routes (voice, graph, health, Twilio signature check)
     graph/                 THE Gather graph: engine, state, TwiML rendering, nodes/{public,institution,officer,faculty,verify}
     agent/                 policy, verification, tool layer, personas; plus the optional LLM brain/guardrails
-    relay_ws.py            ConversationRelay WebSocket (relay/hybrid)
+    graph/live.py          the graph over a ConversationRelay WebSocket (live mode)
+    dial.py · api/routes_dial.py   the "call me" feature: number checks, limits, Twilio dialler
+    relay_ws.py            ConversationRelay WebSocket for the LLM (relay/hybrid)
     speech/                date & time parsing, yes/no detection, phrases, languages
     ivr.py · twiml.py      caller lookup / persona routing / TwiML builders
     core_client.py         talks to the core API (bearer token, circuit breaker)
     session.py · config.py signed session tokens · settings
   mock_core/               stand-in for the real core API
-  scripts/simulate_call.py console "phone"
+  scripts/simulate_call.py console "phone" (no Twilio needed)
+  scripts/check_setup.py   read-only preflight: credentials, number, tunnel, CORS, the page
   tests/                   unit + end-to-end tests
   .env.example             every setting, annotated
 ```
@@ -387,7 +474,7 @@ apps/voice/
 
 ```powershell
 cd apps/voice
-.\.venv\Scripts\python -m pytest          # about 220 tests, under a minute
+.\.venv\Scripts\python -m pytest          # about 280 tests, about a minute
 .\.venv\Scripts\ruff check .              # lint
 ```
 
@@ -407,7 +494,7 @@ or anything about the real core API. See the next sections.
 | Phase (spec §20) | State |
 |---|---|
 | V0 setup · V1 inbound IVR · V2 relay + LLM brain · V3 personas & tools | **Built**, plus the Gather graph (no-LLM default) |
-| V4 outbound dialer (placing calls, calling hours, answering-machine detection, retries) | **Not built.** The *conversation* for an outbound call exists and is tested, but nothing places the call yet |
+| V4 outbound dialer | **Partly built.** The dial pad's "call me" flow places real calls (with limits, status, error handling). **Not built:** core-triggered scheduled calls — calling hours, answering-machine detection, retries, holidays |
 | V5 post-call summary + structured outcome sent to core | Not built (transcripts are collected in memory, then dropped) |
 | V6 in-app dictation for field inspectors | Not built |
 | V7 real-core integration, load test, deployment | Not built |
@@ -417,10 +504,11 @@ or anything about the real core API. See the next sections.
 
 ## 13. Known limitations — read before a demo
 
-- **Never tested on a real call.** Everything is verified against simulated Twilio traffic. First live calls may reveal tuning needs. Two specific unknowns: the exact Twilio `<Gather>` options best suited to Indian-English speech (`speechModel`, `enhanced`, `bargeIn` — try `GATHER_SPEECH_MODELS_JSON` to override), and how the Google `en-IN` voices sound.
+- **Never heard on a real call.** Verified against simulated Twilio traffic, and the signed webhook plus WebSocket have been exercised through the real ngrok address — but no phone has rung yet (the Twilio account has no number at the time of writing). Voice quality, recognition accuracy of Indian accents and end-to-end latency are therefore **unmeasured**. Two specific unknowns: whether ConversationRelay is enabled on your Twilio account (if not, use `CONVERSATION_MODE=gather`), and whether Twilio's default en-IN speech-to-text is best for your callers (see the `RELAY_*` settings).
+- **The dial pad is a public page that can cost money.** Anyone who finds it can ask your Twilio account to place a call to a number inside the allowed prefix. A *trial* account limits that to numbers you verified; **a paid account does not**. Before upgrading, set `DIAL_PAD_TOKEN`, keep the limits low, and consider restricting `DIAL_ALLOWED_PREFIXES`.
 - **Speech recognition is Twilio's.** Names of colleges and unusual dates are the likeliest misrecognitions — which is why every date and every filed item is read back for a yes/no before it's saved.
 - **English only.** Hindi and the four southern languages are written but switched off (`ENABLED_LANGUAGES`); their speech quality and translations were never reviewed by a native speaker.
 - **The backend is a mock.** Data shown above (colleges, queue numbers) comes from `mock_core`. A few places assume contract details Track P hasn't confirmed — listed in `docs/DECISIONS.md` (e.g. addressing calls by Twilio's CallSid).
 - **State is in memory.** A restart mid-call makes the caller hear "technical problem" and hang up; the daily-call limit and per-call state are per-process, so run **one** worker until they move to Redis.
 - **Call-back promises are only as real as core.** "I've asked an officer to call you back" means a task was sent to core; whether an officer sees it depends on Track P.
-- **Trial limits.** A Twilio trial account may add an announcement to calls and, once outbound calling exists, can only dial numbers you have verified in the Twilio console.
+- **Trial limits.** A Twilio trial account may add an announcement to calls and can only dial numbers you have verified in the Twilio console.

@@ -129,3 +129,35 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   and the best `speechModel` for Indian English are unverified until a real call.
 - **Institution names in the graph** are trimmed of filler words at the ends only
   ("is X approved" -> "X"); core's search does the fuzzy matching.
+
+## Dial pad, live voice, GitHub Pages (user request)
+
+- **Human voice = ConversationRelay, not `<Say>`.** The Gather path uses Twilio's basic `<Say>`
+  voices and waits for `<Gather>` timeouts, so it cannot sound conversational. `CONVERSATION_MODE=live`
+  runs the *same graph* over a ConversationRelay WebSocket (`/voice/live`): Twilio streams the
+  caller's speech to us as text and speaks our replies with a neural voice, with barge-in. Still no
+  LLM. Gather mode stays as the fallback for accounts without ConversationRelay.
+- **Voice, STT provider and model are left to Twilio's default for en-IN** (per Twilio's voice
+  table: an ElevenLabs voice, Google speech-to-text). An untested provider/model/language
+  combination can fail a call, so overrides are opt-in (`RELAY_*`). `interruptSensitivity=medium`
+  and `ignoreBackchannel=true` so "mm-hmm" does not cut the agent off. Per-turn graph latency is
+  logged (`live_turn`, node name only).
+- **Text is made speakable** (`speech/speakable.py`): "2026-27" -> "2026 to 27", "B.Tech" -> "B Tech",
+  "CSE" -> "C S E", following Twilio's advice to write numbers and abbreviations out.
+- **Outbound "call me" = the old Sentinel contract.** `POST /dial/call` (form field `phone`; answer
+  `{call_sid, status}` or `{detail}`) asks Twilio to ring the number with `url=/voice/outbound-twiml?d=<id>`
+  and a status callback. The person on the line is identified by the number we dialled
+  (`Caller.persona` from the core lookup; unknown numbers are PUBLIC). No answering-machine
+  detection on these calls: a person just asked for the call and AMD adds seconds of silence.
+- **The page is public, so the endpoint defends the Twilio account:** country-prefix allow-list
+  (`+91`), per-number / per-address / daily limits (in memory, one worker), optional access code,
+  CORS restricted to the page's origin, friendly mapping of Twilio errors (raw Twilio text is never
+  shown). The earlier version relied on the trial account alone; that protection ends on upgrade.
+- **Demo scenarios** (`DEMO_SCENARIOS`) let the page start the public / institution / officer /
+  faculty conversations on a real phone using the mock core. Refused in production.
+- **ngrok:** the authtoken is stored by ngrok itself, never in the repo or `.env`. The account's
+  permanent domain is used for `PUBLIC_VOICE_URL` and `dialpad/config.js` (an address, not a secret).
+  The page also accepts `?api=` and remembers it, and sends `ngrok-skip-browser-warning` so ngrok's
+  free-tier interstitial does not swallow JSON.
+- **GitHub Pages** publishes only `dialpad/` via a workflow (`.github/workflows/pages.yml`).
+- **Mock core reads the same settings/.env as the service,** and tests ignore any local `.env`.
