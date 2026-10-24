@@ -621,3 +621,17 @@ def test_graph_hands_a_verified_officer_to_the_relay_without_asking_for_the_pin_
         del press
     finally:
         client.__exit__(None, None, None)
+
+
+def test_gather_uses_the_polly_neural_voice_and_phone_call_model(graph):
+    client, _ = graph()
+    phone = dial(client)
+    g = phone.turn.gather
+    assert g.get("speechModel") == "phone_call"
+    assert {s.get("voice") for s in phone.turn.root.iter("Say")} == {"Polly.Kajal-Neural"}
+    assert {s.get("language") for s in phone.turn.root.iter("Say")} == {"en-IN"}
+
+
+def test_recording_can_be_switched_off(graph):
+    client, _ = graph(record_calls=False)
+    assert dial(client).turn.root.find("Start") is None

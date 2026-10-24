@@ -18,7 +18,7 @@ RELAY_WELCOME = "Go ahead and ask your question. Say main menu at any time to go
 
 
 def _voice(settings: Settings) -> str:
-    return f"Google.{langs.tts_voice(_ENGLISH, settings)}"
+    return settings.gather_voice
 
 
 def spoken_lines(call: CallState, step: Step) -> list[str]:
@@ -89,8 +89,8 @@ def render(
         options["finish_on_key"] = target.finish_on_key
     if target.hints:
         options["hints"] = target.hints
-    if model := settings.speech_model_overrides.get("en"):
-        options["speech_model"] = model
+    # phone_call is the model the earlier agent used for en-IN on this account
+    options["speech_model"] = settings.speech_model_overrides.get("en", "phone_call")
     if not target.sensitive:
         options["barge_in"] = "true"  # let callers speak or key over the prompt
     gather = vr.gather(**options)

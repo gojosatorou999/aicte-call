@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     # X-Twilio-Signature. Accept that for that one endpoint, but only when the one-time id,
     # account, call sid and dialled number all match (see dial.unsigned_fetch_problem).
     dial_accept_unsigned_twiml: bool = True
+    # The <Say> voice for the Gather path. Polly neural en-IN is what the earlier Sentinel agent
+    # used on this Twilio account: natural, and fast enough not to add dead air.
+    gather_voice: str = "Polly.Kajal-Neural"
+    # Dual-channel call recording (<Start><Recording>). Optional: a restricted trial account may
+    # not allow it, and a refused element can end the call.
+    record_calls: bool = True
 
     # -- Outbound calling (used by the V4 dialer) -------------------------
     call_hours_start: str = "10:00"

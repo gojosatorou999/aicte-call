@@ -122,6 +122,7 @@ async def _connect(
 
     mode = settings.conversation_mode
     welcome = outbound.welcome if outbound else INBOUND_WELCOME
+    recording = _url("/voice/recording") if settings.record_calls else None
     log.info(
         "call_routed",
         call_sid=call_sid,
@@ -136,7 +137,7 @@ async def _connect(
                 ws_url=_ws_url("/voice/live"),
                 session_jwt=token,
                 welcome=welcome,
-                recording_callback=_url("/voice/recording"),
+                recording_callback=recording,
                 settings=settings,
             )
         )
@@ -149,7 +150,7 @@ async def _connect(
                 store=request.app.state.calls,
                 settings=settings,
                 job=job,
-                recording_callback=_url("/voice/recording"),
+                recording_callback=recording,
                 greeting=welcome,
             )
         )
@@ -159,7 +160,7 @@ async def _connect(
             lang_code=lang.code,
             session_jwt=token,
             welcome=phrase("welcome", lang.code),
-            recording_callback=_url("/voice/recording"),
+            recording_callback=recording,
         )
     )
 
