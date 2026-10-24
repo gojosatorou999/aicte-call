@@ -5,12 +5,14 @@ from datetime import datetime
 import pytest
 
 from app import clock
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.utils import drain
 
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tests must behave the same on every machine: ignore any developer's local .env.
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setenv("TWILIO_SIGNATURE_VALIDATION_ENABLED", "false")
     monkeypatch.setenv("APP_ENV", "development")
     # The suite exercises every language; English-only is the production default.

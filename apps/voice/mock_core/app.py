@@ -6,12 +6,11 @@ tests need. It does check the bearer token, like the real thing."""
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
-_TOKEN = os.environ.get("INTERNAL_SERVICE_TOKEN", "change-me-voice-to-core")
+from app.config import get_settings
 
 INSTITUTION = {
     "id": "inst-001",
@@ -29,7 +28,8 @@ INSTITUTIONS = [INSTITUTION, INSTITUTION_2]
 
 
 def _auth(authorization: str = Header(default="")) -> None:
-    if authorization != f"Bearer {_TOKEN}":
+    # Same setting (and .env) as the voice service, so the two always agree on the token.
+    if authorization != f"Bearer {get_settings().internal_service_token.get_secret_value()}":
         raise HTTPException(401, detail={"error": {"code": "UNAUTHORIZED", "params": {}}})
 
 
