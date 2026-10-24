@@ -22,7 +22,18 @@ from app.speech.intent import has_any, is_affirmative, is_negative, pick_number
 
 COMPLAINT_WORDS = ("complaint", "complain", "grievance", "fake", "fraud", "report", "cheating")
 FAKE_WORDS = ("fake", "fraud", "unapproved", "bogus", "illegal", "not approved", "without approval")
-BYE_WORDS = ("goodbye", "bye", "thanks", "thank", "that is all", "thats all", "nothing", "no more")
+# Only a clear goodbye ends the call. ("thanks" / "stop" are not goodbyes: people say them mid-call.)
+BYE_WORDS = (
+    "goodbye",
+    "bye",
+    "that is all",
+    "thats all",
+    "nothing else",
+    "no more",
+    "hang up",
+    "end the call",
+)
+THANKS_WORDS = ("thanks", "thank")
 # Words trimmed from the *ends* of what the caller said ("is X approved by AICTE", "check X") so
 # that only the college's name goes to the search. Never removed from the middle: "Sri Sai
 # College of Engineering" keeps its "College".
@@ -138,11 +149,17 @@ async def pub_menu(call: CallState, inp: Input) -> Step:
     return await _public_input(call, inp.text)
 
 
+def _more_prompt(call: CallState) -> str:
+    """Silent after an answer; only if the caller goes quiet do we gently say we are still here."""
+    if call.silence:
+        return "You can ask about this college, or say the name of another one."
+    return ""
+
+
 @node(
     "pub_more",
-    "",  # nothing more is asked: the line just stays open for a question
+    _more_prompt,  # nothing is asked after an answer: the line just stays open for a question
     open_ended=True,
-    end_on_silence=True,
     hints="courses, intake, seats, where, another college, complaint, goodbye",
 )
 async def pub_more(call: CallState, inp: Input) -> Step:
@@ -151,8 +168,10 @@ async def pub_more(call: CallState, inp: Input) -> Step:
 
 async def _public_input(call: CallState, text: str) -> Step:
     """Whatever the caller says on the public line: a name, a question, a complaint or goodbye."""
-    if has_any(text, *BYE_WORDS) and len(text.split()) <= 4:
+    if has_any(text, *BYE_WORDS) and len(text.split()) <= 5:
         return Step(say=[MSG_BYE], end=True)
+    if has_any(text, *THANKS_WORDS) and len(text.split()) <= 3:
+        return Step(say=["You are welcome."], stay=True)  # stays on the line
     if has_any(text, *OFFICER) and len(text.split()) <= 6:
         return await handoff(call, "Caller asked to speak to an officer.")
     if has_any(text, *COMPLAINT_WORDS):
@@ -208,16 +227,12 @@ async def _find_institution(call: CallState, name: str) -> Step:
     results: list[dict[str, Any]] = list(res.data.get("results") or [])
     if not results:
         _note_lookup(call, said=name, matched="", result="not_found")
-        if call.bump("pub_name") >= MAX_NAME_ATTEMPTS:
-            call.clear("pub_name")
-            return Step(
-                say=[
-                    "I could not find that college. You can check the AICTE website for the "
-                    "official list. Have a nice day. Goodbye."
-                ],
-                end=True,
-            )
-        return Step(say=["I could not find a college with that name."], stay=True)
+        tries = call.bump("pub_name")
+        say = [f"I could not find a college called {name}."]
+        if tries >= MAX_NAME_ATTEMPTS:
+            say.append("It may be spelled differently; try the main words, or add the city.")
+        # Never hang up here: keep the line open and ask again.
+        return Step(say=say, goto="pub_menu")
     call.clear("pub_name")
     if len(results) == 1:
         return await _answer_approval(call, results[0], said=name)

@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     admin_user: str = "admin"
     admin_password: SecretStr = SecretStr("")
     # Where the call report is kept (SQLite for the dashboard) and the CSV rewritten after each call.
+    # The AICTE approved-institutions list the stand-in core answers from (see mock_core/institutions.py).
+    # Missing file = two fictional demo colleges only.
+    institutions_csv: str = "data/aicte_institutions.csv"
     call_log_db: str = "data/calls.db"
     call_log_csv: str = "data/calls.csv"
 
@@ -152,16 +155,24 @@ class Settings(BaseSettings):
     enabled_languages: str = "en"
 
     # -- Conversation -----------------------------------------------------
-    max_call_duration_public_sec: int = Field(default=360, ge=30, le=3600)
-    max_call_duration_default_sec: int = Field(default=600, ge=30, le=3600)
-    no_input_timeout_ms: int = Field(default=6000, ge=1000, le=30_000)
+    # Safety ceilings only. The agent does not end a conversation because it is long.
+    max_call_duration_public_sec: int = Field(default=1800, ge=30, le=3600)
+    max_call_duration_default_sec: int = Field(default=1800, ge=30, le=3600)
+    # How long the line waits for the caller to speak before asking again (it never hangs up
+    # on silence alone: see silence_end_after).
+    no_input_timeout_ms: int = Field(default=10_000, ge=1000, le=30_000)
+    # Only after this many silent waits IN A ROW (about two minutes) does the agent end the call,
+    # so a dead open line does not run up the bill. Any word from the caller resets the count.
+    silence_end_after: int = Field(default=12, ge=3, le=100)
     silence_reprompts: int = Field(default=2, ge=0, le=5)
     max_turns: int = Field(default=30, ge=1, le=200)
     max_attempts_per_slot: int = Field(default=3, ge=1, le=5)
     # Policy cap on a committed date (app.md 12.3: "> 30 days").
     commitment_max_days: int = Field(default=30, ge=1, le=365)
     public_calls_per_day: int = Field(default=10, ge=1, le=1000)
-    public_lookups_per_call: int = Field(default=5, ge=1, le=50)
+    # Each college asked about costs two lookups (search + approval); this is a scraping guard,
+    # not a conversation limit, so it is generous. When reached the line stays open.
+    public_lookups_per_call: int = Field(default=40, ge=1, le=500)
     pin_max_attempts: int = Field(default=3, ge=1, le=10)
     otp_max_attempts: int = Field(default=3, ge=1, le=10)
     # Seconds of trailing silence before Twilio finalises an OPEN-ENDED

@@ -42,10 +42,11 @@ def make_calls(client):
     """One college check, one failed lookup, one complaint."""
     phone = place_call(client, "+919999999999", call_sid="CA-check")
     phone.say("Sri Venkateswara")
-    phone.silence()  # the line goes quiet after the answer: the call ends
+    phone.say("goodbye")
     phone = place_call(client, "+918888888888", call_sid="CA-missing")
     phone.say("Nonexistent University")
     phone.say("Nonexistent University")
+    phone.say("goodbye")
     phone = place_call(client, "+917777777777", call_sid="CA-complaint")
     phone.say("I want to file a complaint")
     phone.say("Green Valley College")

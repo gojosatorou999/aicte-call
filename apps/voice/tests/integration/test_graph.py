@@ -86,12 +86,17 @@ def test_public_can_say_the_whole_question_at_once(graph):
     assert "is approved for 2026-27" in t.text
 
 
-def test_a_silent_line_after_the_answer_ends_the_call_politely(graph):
+def test_a_silent_line_after_the_answer_stays_open_and_can_still_be_used(graph):
     client, _ = graph()
     phone = dial(client)
     phone.say("Sri Venkateswara")
     t = phone.silence()
-    assert t.ended and "Have a nice day" in t.text and "did not hear" not in t.text
+    assert not t.ended and "did not hear anything" in t.text  # it does not hang up
+    assert t.prompt == "You can ask about this college, or say the name of another one."
+    t = phone.silence()
+    assert not t.ended and "still here" in t.text
+    assert "approved for B.Tech CSE" in phone.say("which courses does it have").text  # still works
+    assert phone.say("goodbye").ended  # only a clear goodbye ends it
 
 
 def test_the_caller_can_ask_questions_about_the_college_just_discussed(graph):
@@ -134,14 +139,21 @@ def test_public_multiple_matches_are_listed_and_picked_by_voice_or_keypad(graph)
     assert "Venkateswara" in phone.say("the first one").text
 
 
-def test_public_unknown_college_retries_once_then_ends_politely(graph):
+def test_public_unknown_college_never_ends_the_call(graph):
     client, _ = graph()
     phone = dial(client)
     t = phone.say("Nonexistent University")
-    assert "could not find a college with that name" in t.text and t.node == "pub_menu"
-    assert t.prompt == "Please say the name of the college."
+    assert "could not find a college called Nonexistent University" in t.text
+    assert (
+        t.node == "pub_menu" and t.prompt == "Please say the name of the college." and not t.ended
+    )
     t = phone.say("Nonexistent University")
-    assert t.ended and "AICTE website" in t.text and "Have a nice day" in t.text
+    assert not t.ended and "spelled differently" in t.text  # a hint, still no hang-up
+    t = phone.say("Another Missing College")
+    assert not t.ended
+    assert (
+        "Sri Venkateswara Institute of Technology is approved" in phone.say("Sri Venkateswara").text
+    )
 
 
 def test_public_complaint_is_read_back_then_filed_and_the_call_ends_after_the_reference(graph):
@@ -183,12 +195,13 @@ def test_public_lookup_limit_per_call(graph):
     assert "only look up a few institutions" in t.text
 
 
-def test_public_can_ask_for_an_officer(graph):
+def test_public_can_ask_for_an_officer_and_the_line_stays_open(graph):
     client, core = graph()
     phone = dial(client)
     t = phone.say("can I talk to an officer")
-    assert t.ended and "asked an officer to call you back" in t.text
+    assert not t.ended and "asked an officer to call you back" in t.text
     assert body(core.calls("POST", "/callbacks")[0])["kind"] == "HANDOFF"
+    assert "is approved for" in phone.say("Sri Venkateswara").text  # and the caller can carry on
 
 
 # -- officer ----------------------------------------------------------------------------------------
@@ -406,7 +419,7 @@ def test_typed_number_institution_cannot_use_commitment_flow(graph):
     )
     phone = Phone(client, Turn(r.text), "CA3")
     t = phone.say("yes please")
-    assert t.ended and "asked an officer to call you back" in t.text
+    assert "asked an officer to call you back" in t.text
     assert body(core.calls("POST", "/callbacks")[0])["kind"] == "HANDOFF"
     assert core.calls("POST", "/commitments") == []
 
@@ -502,14 +515,24 @@ def test_outbound_visit_confirmation_never_records_a_commitment(graph):
 
 
 # -- global behaviour ----------------------------------------------------------------------------------------------------
-def test_silence_reprompts_twice_then_ends_the_call(graph):
-    client, _ = graph()
+def test_silence_never_hangs_up_until_a_long_unbroken_silence(graph):
+    client, _ = graph(silence_end_after=4)
     phone = dial(client)
+    assert "did not hear anything" in phone.silence().text
     for _ in range(2):
         t = phone.silence()
-        assert "did not hear anything" in t.text and t.node == "pub_menu"
-    t = phone.silence()
+        assert not t.ended and "still here" in t.text and t.node == "pub_menu"
+    t = phone.silence()  # the 4th silence in a row: the line is dead
     assert t.ended and "unable to hear you" in t.text
+
+
+def test_any_word_resets_the_silence_count(graph):
+    client, _ = graph(silence_end_after=3)
+    phone = dial(client)
+    phone.silence()
+    phone.silence()
+    phone.say("Sri Venkateswara")  # the caller is there
+    assert not phone.silence().ended and not phone.silence().ended
 
 
 def test_empty_speech_counts_as_silence(graph):
@@ -542,7 +565,7 @@ def test_goodbye_menu_repeat_and_officer_work_from_anywhere(graph):
     phone = dial(client, INSTITUTION)  # an institution caller: the menu persona
     assert phone.say("repeat that").node == "inst_menu"
     t = phone.say("can I talk to an officer")
-    assert t.ended
+    assert not t.ended and "asked an officer to call you back" in t.text and t.node == "inst_menu"
     assert (
         body(core.calls("POST", "/callbacks")[0])["summary"]
         == "Caller asked to speak to an officer."
@@ -552,6 +575,9 @@ def test_goodbye_menu_repeat_and_officer_work_from_anywhere(graph):
     assert phone.say("goodbye").ended
     phone = dial(client, call_sid="CA3")  # the public line
     assert phone.say("goodbye").ended
+    phone = dial(client, call_sid="CA4")
+    assert not phone.say("stop").ended  # "stop" is what people say to interrupt, not a goodbye
+    assert not phone.say("thank you").ended
 
 
 def test_free_text_nodes_do_not_trigger_global_commands(graph):
@@ -581,20 +607,24 @@ def test_missing_state_after_a_restart_is_said_not_silent(graph):
 
 
 def test_core_outage_is_explained_and_never_invented(graph):
-    client, core = graph()
-    phone = dial(client)
-    core.overrides.clear()
-    phone.say("check an institution")
-
     import httpx
 
     from app.core_client import CoreClient
 
+    client, core = graph()
+    phone = dial(client)
+    core.overrides.clear()
     client.app.state.calls.get("CA1").runner._inner._core = CoreClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(503))
     )
     t = phone.say("Sri Venkateswara")
-    assert t.ended and "cannot check that right now" in t.text and "approved for" not in t.text
+    assert "cannot check that right now" in t.text and "approved for" not in t.text
+    assert not t.ended  # one failure does not end the call
+    for _ in range(4):  # a backend that stays down: it ends honestly after repeated failures
+        if t.ended:
+            break
+        t = phone.say("Sri Venkateswara")
+    assert t.ended and "technical problem" in t.text
 
 
 def test_every_node_target_is_registered():

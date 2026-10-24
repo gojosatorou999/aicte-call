@@ -154,6 +154,24 @@ def check_twilio(s: Settings, r: Report) -> None:
         )
 
 
+def check_college_list(s: Settings, r: Report) -> None:
+    from pathlib import Path
+
+    from mock_core.institutions import load_csv
+
+    path = Path(s.institutions_csv)
+    if not path.is_file():
+        r.warn(
+            f"no college list at {path}: only the 2 demo colleges can be found",
+            "export AICTE's approved-institutions list as CSV to that path (see README)",
+        )
+        return
+    try:
+        r.ok(f"college list: {len(load_csv(path)):,} institutions loaded from {path}")
+    except ValueError as exc:
+        r.fail(str(exc), "check the column headings of the CSV")
+
+
 def check_service(s: Settings, r: Report) -> None:
     print("\n3. The running service")
     try:
@@ -167,6 +185,7 @@ def check_service(s: Settings, r: Report) -> None:
     except Exception:
         r.fail("the voice service is not running on port 8080", "run scripts\\start_all.ps1")
         return
+    check_college_list(s, r)
     try:
         public = httpx.get(f"{s.public_base}/health", headers=SKIP_NGROK_PAGE, timeout=10)
         if public.status_code == 200 and public.json().get("service") == "acp-voice":

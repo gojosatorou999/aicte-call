@@ -127,9 +127,24 @@ Every call is recorded — like the earlier Sentinel agent's reports.
   `docs/DECISIONS.md`): calls are placed with only the basics, progress is polled, and unsigned
   requests are accepted only with a one-time id / per-call secret key. Once the account is upgraded,
   set `DIAL_ACCEPT_UNSIGNED_TWIML=false` and `RECORD_CALLS=true`.
-- **Demo data:** the backend is a mock with two made-up institutions — *Sri Venkateswara Institute of
-  Technology* (Anantapur) and *Sri Sai College of Engineering* (Chennai). Any other name (a real
-  college, say) is correctly reported as "not found". Say "Sri" to hear both.
+- **Any college name — you must supply the list.** The agent can only say whether a college is
+  approved if the backend knows it, and I have no source of AICTE's national list here (and will not
+  make up approval status for real colleges). Export AICTE's approved-institutions list as a CSV and save it as
+  `apps/voice/data/aicte_institutions.csv`; restart. Then **every college in it can be said by name** —
+  including mispronounced or misheard names (fuzzy match), acronyms ("MGIT"), and a city to narrow
+  ("Sri Sai Chennai"); if several match, the agent reads the options and the caller picks a number.
+  Columns are matched loosely: institute name (required), and optionally state, district/city, academic
+  year, course, intake, status/approved, aliases. One row per course or one per institute both work;
+  `docs/aicte_institutions.sample.csv` shows the shape (fictional colleges). `python scripts/check_setup.py`
+  tells you how many institutions were loaded. **Until the file exists, only two made-up demo colleges
+  are known** (*Sri Venkateswara Institute of Technology*, *Sri Sai College of Engineering*; say "Sri"
+  to hear both) and any other name gets "I could not find a college called …" — the line stays open.
+- **It does not hang up mid-call.** Not on silence, not when a college is not found, not on
+  "thanks", not on "stop" (people say that to interrupt), not when it cannot answer, not when you ask
+  for an officer. The only things that end a call: you say goodbye / "that is all" / "hang up"; a
+  complaint reference has been read out; about two minutes of unbroken silence
+  (`SILENCE_END_AFTER` × `NO_INPUT_TIMEOUT_MS`); the 30-minute safety cap; abuse after a warning;
+  or the backend being down.
 
 ---
 
@@ -140,7 +155,7 @@ Someone calls the number. The service works out **who they are** from the caller
 
 | Caller | How they're recognised | What they can do by voice |
 |---|---|---|
-| **Member of the public** (student, parent) | Anyone not otherwise recognised | **Say a college name — any name — and hear whether it is approved** (courses, intake). Keep talking to ask about it (courses, seats, where, rules); say *complaint* to report a problem. No menu, no extra questions; silence ends the call politely |
+| **Member of the public** (student, parent) | Anyone not otherwise recognised | **Say a college name — any name — and hear whether it is approved** (courses, intake). Keep talking to ask about it (courses, seats, where, rules); say *complaint* to report a problem. No menu, no extra questions. **It never hangs up on its own mid-conversation** (see below) |
 | **Institution staff** | Caller ID matches a registered contact — or an outbound call placed to them | Hear their open items and due dates; promise a completion date (a *commitment*); ask for more time (an *extension request*); get the upload link on WhatsApp / SMS / email |
 | **AICTE officer** | Caller ID matches an officer, **then a 6-digit voice PIN on the keypad** | Queue summary, overdue lists (stages, undertakings, documents, visits), regional statistics, a report emailed to them, a reminder sent to an institution |
 | **Faculty member** | Caller ID matches a faculty record, **then a one-time code on the keypad** | Hear their registration status and any duplicate flag with the steps to resolve it; file a grievance about their record |
@@ -172,7 +187,11 @@ you> Sri Sai
 🤖  Sri Sai College of Engineering is approved for 2026-27. Approved courses: B.Tech CSE, intake 120; B.Tech ECE, intake 60.
 you> how many seats
 🤖  Approved intake at Sri Sai College of Engineering: B.Tech CSE, 120 seats; B.Tech ECE, 60 seats.
-          (silence)
+you> Sri Venkateswara
+🤖  Sri Venkateswara Institute of Technology is approved for 2026-27. ...
+you> thank you
+🤖  You are welcome.
+you> goodbye
 🤖  Thank you for calling. Have a nice day. Goodbye.
 ```
 
@@ -265,8 +284,8 @@ flowchart TD
 ```
 
 Per call, the service keeps a small in-memory record (current node, what's been collected,
-whether the caller is verified). Silence is re-prompted twice then the call ends politely;
-repeated misunderstanding ends in an officer call-back; a core outage is explained honestly
+whether the caller is verified). Silence is met with "I am still here" and the line stays open (it ends only after about two minutes of
+unbroken silence); repeated misunderstanding arranges an officer call-back and carries on; a core outage is explained honestly
 rather than guessed around.
 
 ### The modes (`CONVERSATION_MODE`)
@@ -439,7 +458,8 @@ Settings come from environment variables or `apps/voice/.env`. The full annotate
 | `COMMITMENT_MAX_DAYS` | `30` | Furthest date a caller may *commit* to; anything later can only be an extension *request* |
 | `PIN_MAX_ATTEMPTS` / `OTP_MAX_ATTEMPTS` | `3` | Wrong codes before the call is ended |
 | `PUBLIC_LOOKUPS_PER_CALL` / `PUBLIC_CALLS_PER_DAY` | `5` / `10` | Abuse limits for anonymous callers |
-| `NO_INPUT_TIMEOUT_MS`, `SILENCE_REPROMPTS` | `6000`, `2` | Silence handling |
+| `NO_INPUT_TIMEOUT_MS`, `SILENCE_END_AFTER` | `10000`, `12` | How long to wait for the caller; the call ends only after this many silent waits in a row |
+| `INSTITUTIONS_CSV` | `data/aicte_institutions.csv` | The AICTE approved-institutions list the demo backend answers from |
 | `MAX_CALL_DURATION_PUBLIC_SEC` / `…_DEFAULT_SEC` | `360` / `600` | Call length caps |
 
 ---

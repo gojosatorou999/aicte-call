@@ -192,20 +192,22 @@ def test_outbound_reminder_call_runs_the_scripted_conversation(live):
     assert client.app.state.calls.get("CA1") is None  # state dropped when the call ends
 
 
-def test_silence_reprompts_then_ends_the_call(live):
-    client, _ = live(silence_reprompts=1, no_input_timeout_ms=20)
+def test_silence_never_hangs_up_until_a_long_unbroken_silence(live):
+    client, _ = live(silence_end_after=3, no_input_timeout_ms=20)
     ws_cm, setup = connect(client)
     with ws_cm as ws:
         ws.send_text(setup)
         reply_text(ws)
         second = reply_text(ws)  # no answer -> "did not hear" + the question again
         assert "did not hear anything" in second and "Please say the name of the college" in second
-        last = reply_text(ws)  # one reprompt allowed, then the polite goodbye
+        third = reply_text(ws)
+        assert "still here" in third  # still no hang-up
+        last = reply_text(ws)  # three silences in a row
         assert "unable to hear you" in last
         assert recv(ws) == {"type": "end"}
 
 
-def test_silence_after_an_answer_is_a_natural_end_not_a_reprompt(live):
+def test_silence_after_an_answer_keeps_the_line_open(live):
     client, _ = live(no_input_timeout_ms=20)
     ws_cm, setup = connect(client)
     with ws_cm as ws:
@@ -213,8 +215,10 @@ def test_silence_after_an_answer_is_a_natural_end_not_a_reprompt(live):
         reply_text(ws)
         say(ws, "Sri Venkateswara")
         assert "is approved for" in reply_text(ws)
-        assert "Have a nice day" in reply_text(ws)  # silence ends it politely
-        assert recv(ws) == {"type": "end"}
+        nudge = reply_text(ws)  # silence: a gentle nudge, not a goodbye
+        assert "did not hear anything" in nudge and "say the name of another one" in nudge
+        say(ws, "which courses")
+        assert "approved for" in reply_text(ws)
 
 
 def test_abuse_gets_one_warning_then_the_call_ends(live):

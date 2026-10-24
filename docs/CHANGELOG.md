@@ -98,3 +98,10 @@
 - All Gather speech nested inside the `<Gather>` (interruptible by key press; speech barge-in unconfirmed).
 - `calllog.py` + `/admin` dashboard + CSV export + `data/calls.csv`; dial pad scenario question removed.
 - Tests: 340+.
+
+## No mid-call hang-ups; load the AICTE institutions list
+
+- Silence, not-found, tool failures, officer requests, "thanks" and "stop" no longer end the call.
+- New `SILENCE_END_AFTER`; call caps raised to 30 min; public lookup guard 5 -> 40.
+- `mock_core/institutions.py`: CSV loader + fuzzy / acronym / city matching; `INSTITUTIONS_CSV`;
+  `docs/aicte_institutions.sample.csv`; `check_setup.py` reports the list size.

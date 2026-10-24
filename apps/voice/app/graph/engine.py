@@ -69,9 +69,6 @@ class Node:
     hints: str = ""
     open_ended: bool = False  # free text: only the abuse check applies
     sensitive: bool = False  # PIN/OTP: nothing is stored, no global rules
-    # Silence here is the natural end of the conversation (e.g. after an answer with nothing
-    # more asked): say goodbye and hang up instead of re-prompting.
-    end_on_silence: bool = False
 
 
 REGISTRY: dict[str, Node] = {}
@@ -87,7 +84,6 @@ def node(
     hints: str = "",
     open_ended: bool = False,
     sensitive: bool = False,
-    end_on_silence: bool = False,
 ) -> Callable[[Handler], Handler]:
     """Register `handler` as the handler of node `node_id`."""
 
@@ -103,7 +99,6 @@ def node(
             hints=hints,
             open_ended=open_ended,
             sensitive=sensitive,
-            end_on_silence=end_on_silence,
         )
         return handler
 
@@ -119,13 +114,13 @@ GOODBYE = (
     "thats all",
     "nothing else",
     "no more",
-    "stop",
-)
+)  # "stop" is deliberately not here: it is what people say to cut the agent off
 MENU = ("main menu", "start over", "go back", "back to menu", "menu")
 REPEAT = ("repeat", "say that again", "again", "pardon")
 OFFICER = ("officer", "human", "person", "agent", "representative", "operator", "someone")
 
 MSG_NO_INPUT = "Sorry, I did not hear anything."
+MSG_STILL_HERE = "I am still here. Take your time."
 MSG_GOODBYE = "Thank you for calling. Goodbye."
 MSG_BYE = "Thank you for calling. Have a nice day. Goodbye."
 MSG_SILENCE_END = (
@@ -146,7 +141,7 @@ def menu_for(call: CallState) -> str:
     return MENU_NODE[call.claims.persona.value]
 
 
-async def handoff(call: CallState, summary: str, *, end: bool = True) -> Step:
+async def handoff(call: CallState, summary: str, *, end: bool = False) -> Step:
     """Ask an officer to follow up; falls back to a pointer to the regional office."""
     if call.runner.allows("handoff_to_officer"):
         res = await call.tool("handoff_to_officer", {"summary": summary})
@@ -204,13 +199,12 @@ async def run_turn(
     if call.core_down:
         return Step(say=[MSG_TECHNICAL], end=True)
 
-    if (noinput or not inp.any.strip()) and n.end_on_silence:
-        return Step(say=[MSG_BYE], end=True)
     if noinput or not inp.any.strip():
         call.silence += 1
-        if call.silence > settings.silence_reprompts:
+        if call.silence >= settings.silence_end_after:  # a long, unbroken silence: the line is dead
             return Step(say=[MSG_SILENCE_END], end=True)
-        return Step(say=[MSG_NO_INPUT], stay=True)
+        # Never hang up on silence alone: say we are still here and ask again.
+        return Step(say=[MSG_NO_INPUT if call.silence == 1 else MSG_STILL_HERE], stay=True)
     call.silence = 0
 
     if not n.sensitive:

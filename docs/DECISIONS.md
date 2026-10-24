@@ -228,3 +228,22 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   number are stored; transcripts are redacted; PIN/OTP never captured; formula-looking cells are
   prefixed with `'`. The `data/` folder is gitignored. The unused `ADMIN_API_KEY` setting was replaced.
 - **The dial pad no longer asks what the call is about** (demo scenarios stay in the backend, off).
+
+## The agent never hangs up mid-conversation; any college in the supplied list (owner demand)
+
+- **Ending a call is the caller's choice.** Removed every self-initiated hang-up from the graph:
+  silence (now "I am still here" and ask again), college not found, tool failure, "officer", "thanks",
+  "stop". A bare "stop" is how people interrupt the agent, so it is no longer a goodbye. What still
+  ends a call: a clear goodbye, the complaint reference read out once, abuse after one warning,
+  the backend being down for the whole call, a 30-minute cap (was 6/10 min), and `SILENCE_END_AFTER`
+  (12 x 10 s) silent waits in a row, so an abandoned open line cannot run up the Twilio bill. Any word
+  from the caller resets the silence count. The public lookup guard was raised from 5 to 40 (two
+  lookups per college) and keeps the line open when it triggers.
+- **"Any college name" is a data problem, not a code problem.** No national dataset of AICTE-approved
+  institutions is reachable from this environment, and approval status of real colleges is not
+  something to guess. So the stand-in core now loads an AICTE export (`INSTITUTIONS_CSV`, default
+  `data/aicte_institutions.csv`, gitignored): loose column names, long or wide layout, grouped per
+  institution and academic year, closed programmes excluded. Matching tolerates speech-recognition
+  errors (close spellings of distinctive words), acronyms, and a city to narrow; generic words
+  ("college", "university", "engineering") never match by themselves. Several candidates are read out
+  for the caller to pick. Without the file, only the two fictional demo colleges exist.

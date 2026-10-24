@@ -13,6 +13,7 @@ from app.utils import drain
 def _env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # Each test gets its own call report files, so tests never touch the real ones.
     monkeypatch.setenv("CALL_LOG_DB", str(tmp_path / "calls.db"))
+    monkeypatch.setenv("INSTITUTIONS_CSV", str(tmp_path / "none.csv"))  # never a real list
     monkeypatch.setenv("CALL_LOG_CSV", str(tmp_path / "calls.csv"))
     # Tests must behave the same on every machine: ignore any developer's local .env.
     monkeypatch.setitem(Settings.model_config, "env_file", None)

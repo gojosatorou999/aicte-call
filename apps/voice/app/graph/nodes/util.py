@@ -73,4 +73,4 @@ async def tool_failed(call: CallState, res: ToolResult) -> Step:
     if call.core_down:
         return Step(say=[MSG_TECHNICAL], end=True)
     done = await handoff(call, f"Tool failure during call ({res.error}); caller needs follow-up.")
-    return Step(say=["I cannot check that right now.", *done.say], end=True)
+    return Step(say=["I cannot check that right now.", *done.say], goto=menu_for(call))

@@ -6,11 +6,13 @@ tests need. It does check the bearer token, like the real thing."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from app.config import get_settings
+from mock_core.institutions import Directory, Institution, load_csv
 
 INSTITUTION = {
     "id": "inst-001",
@@ -87,21 +89,49 @@ def callback(body: dict[str, Any]) -> dict[str, Any]:
     return {"id": "cb-001", **body}
 
 
+def _demo_directory() -> Directory:
+    """Two fictional colleges, used when no AICTE list has been supplied."""
+    courses = [{"name": "B.Tech CSE", "intake": 120}, {"name": "B.Tech ECE", "intake": 60}]
+    return Directory(
+        [
+            Institution(
+                id=i["id"],
+                name=i["name"],
+                city=i["city"],
+                state=i["state"],
+                years={"2026-27": {"approved": True, "courses": courses}},
+            )
+            for i in INSTITUTIONS
+        ]
+    )
+
+
+_directory: Directory | None = None
+
+
+def directory() -> Directory:
+    """The AICTE list from `institutions_csv` if that file exists, else the demo colleges."""
+    global _directory
+    if _directory is None:
+        path = Path(get_settings().institutions_csv)
+        _directory = load_csv(path) if path.is_file() else _demo_directory()
+    return _directory
+
+
 @app.get(f"{P}/public/institutions")
 def search_institutions(name: str, state: str | None = None) -> dict[str, Any]:
-    return {"results": [i for i in INSTITUTIONS if name.lower() in i["name"].lower()]}
+    found = directory().search(name)
+    if state:
+        found = [i for i in found if i.state.lower() == state.lower()] or found
+    return {"results": [i.public for i in found]}
 
 
 @app.get(f"{P}/public/institutions/{{institution_id}}/approval")
 def approval(institution_id: str, academic_year: str | None = None) -> dict[str, Any]:
-    if institution_id not in {i["id"] for i in INSTITUTIONS}:
+    result = directory().approval(institution_id, academic_year)
+    if result is None:
         raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "params": {}}})
-    return {
-        "institution_id": institution_id,
-        "academic_year": academic_year or "2026-27",
-        "approved": True,
-        "courses": [{"name": "B.Tech CSE", "intake": 120}, {"name": "B.Tech ECE", "intake": 60}],
-    }
+    return result
 
 
 @app.post(f"{P}/grievances")
