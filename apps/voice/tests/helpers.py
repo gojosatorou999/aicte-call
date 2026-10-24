@@ -195,3 +195,15 @@ def press(ws, digits: str) -> None:
 
     for d in digits:
         ws.send_text(json.dumps({"type": "dtmf", "digit": d}))
+
+
+class FakeCalls:
+    def __init__(self, error=None):
+        self.created = []
+        self.error = error
+
+    def create(self, **kw):
+        if self.error:
+            raise self.error
+        self.created.append(kw)
+        return type("Call", (), {"sid": "CAfake1", "status": "queued"})()

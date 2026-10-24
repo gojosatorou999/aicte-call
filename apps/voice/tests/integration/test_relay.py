@@ -5,7 +5,7 @@ import json
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from app import relay_ws
+from app import relay_setup
 from app.session import Persona
 from tests.helpers import FakeLLM, Hang, open_relay, recv, reply_text, setup_msg, text, token, tool
 
@@ -92,7 +92,7 @@ def test_bad_session_token_is_rejected():
             ws.send_text(setup_msg(tok="not-a-jwt"))
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
-        assert ei.value.code == relay_ws.WS_UNAUTHORIZED
+        assert ei.value.code == relay_setup.WS_UNAUTHORIZED
     finally:
         client.__exit__(None, None, None)
 
@@ -112,7 +112,7 @@ def test_call_sid_mismatch_is_rejected():
             )
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
-        assert ei.value.code == relay_ws.WS_MISMATCH
+        assert ei.value.code == relay_setup.WS_MISMATCH
     finally:
         client.__exit__(None, None, None)
 

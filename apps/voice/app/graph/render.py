@@ -21,6 +21,20 @@ def _voice(settings: Settings) -> str:
     return f"Google.{langs.tts_voice(_ENGLISH, settings)}"
 
 
+def spoken_lines(call: CallState, step: Step) -> list[str]:
+    """Everything the caller should hear for `step`, in order: the step's own lines,
+    then (unless the call is ending) the next node's prompt. Moves the call to that
+    node and records the lines in the transcript. Shared by the Gather and live paths."""
+    lines = list(step.say)
+    if not step.end:
+        target = REGISTRY[step.goto] if step.goto else REGISTRY[call.node]
+        call.node = target.id
+        lines.append(target.prompt(call))
+    for line in lines:
+        call.note("assistant", line)
+    return lines
+
+
 def turn_url(settings: Settings, node_id: str, *, noinput: bool = False) -> str:
     query = {"n": node_id} | ({"noinput": "1"} if noinput else {})
     return f"{settings.public_base}/voice/g/turn?{urlencode(query)}"
@@ -47,18 +61,17 @@ def render(
             track="both",
         )
     voice = _voice(settings)
-    for line in step.say:
-        call.note("assistant", line)
-        vr.say(line, voice=voice, language=_ENGLISH.bcp47)
-
+    lines = spoken_lines(call, step)
     if step.end:
+        for line in lines:
+            vr.say(line, voice=voice, language=_ENGLISH.bcp47)
         vr.hangup()
         return str(vr)
 
-    target = REGISTRY[step.goto] if step.goto else REGISTRY[call.node]
-    call.node = target.id
-    prompt = target.prompt(call)
-    call.note("assistant", prompt)
+    *intro, prompt = lines
+    for line in intro:
+        vr.say(line, voice=voice, language=_ENGLISH.bcp47)
+    target = REGISTRY[call.node]
 
     options: dict[str, object] = {
         "input": target.kind.value,

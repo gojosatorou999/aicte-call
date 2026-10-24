@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import jwt
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -32,7 +31,8 @@ from app.agent.verification import Outcome, Verifier
 from app.config import Settings, get_settings
 from app.core_client import CoreClient
 from app.obs import get_logger
-from app.session import Persona, SessionClaims, verify_session
+from app.relay_setup import read_setup
+from app.session import Persona, SessionClaims
 from app.speech.intent import has_any
 from app.speech.phrases import phrase
 from app.utils.redact import redact_transcript
@@ -41,12 +41,9 @@ from app.utils.transcript import TranscriptLine
 router = APIRouter()
 log = get_logger(__name__)
 
-SETUP_TIMEOUT_SEC = 10.0
 SPEECH_CHARS_PER_SEC = 12.0  # rough TTS pace, used to time silence and goodbye
 MAX_GOODBYE_WAIT_SEC = 15.0
 END_PADDING_SEC = 1.0  # extra grace after the estimated speech time before ending
-WS_UNAUTHORIZED = 4401
-WS_MISMATCH = 4403
 RETURN_TO_MENU = ("main menu", "go back", "back to menu", "that is all", "thats all", "no thanks")
 
 
@@ -85,26 +82,12 @@ class RelaySession:
             await self._cleanup()
 
     async def _handle_setup(self) -> bool:
-        try:
-            raw = await asyncio.wait_for(self.ws.receive_text(), SETUP_TIMEOUT_SEC)
-            msg = json.loads(raw)
-        except (TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
-            await self._close(WS_UNAUTHORIZED)
+        setup = await read_setup(self.ws, self.settings)
+        if setup is None:
+            self._closing = True
             return False
-        if msg.get("type") != "setup":
-            await self._close(WS_UNAUTHORIZED)
-            return False
-        try:
-            token = (msg.get("customParameters") or {}).get("session", "")
-            self.claims = verify_session(token, self.settings)
-        except (jwt.InvalidTokenError, KeyError, ValueError):
-            log.warning("relay_bad_session")
-            await self._close(WS_UNAUTHORIZED)
-            return False
-        if self.claims.call_sid != msg.get("callSid"):
-            log.warning("relay_callsid_mismatch")
-            await self._close(WS_MISMATCH)
-            return False
+        self.claims = setup.claims
+        msg = {"customParameters": {"session": setup.token}}
 
         c = self.claims
         structlog.contextvars.bind_contextvars(

@@ -6,13 +6,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, relay_ws
+from app import __version__, dial, relay_ws
 from app.agent.llm import OpenAIChat
 from app.agent.tools import load_tool_specs
-from app.api import routes_graph, routes_health, routes_voice
+from app.api import routes_dial, routes_graph, routes_health, routes_voice
 from app.config import get_settings
 from app.core_client import CoreClient
+from app.graph import live
 from app.graph.state import StateStore
 from app.obs import configure_logging, get_logger
 from app.ratelimit import DailyLimiter
@@ -44,6 +46,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     llm = OpenAIChat(settings) if settings.llm_enabled else None
     app.state.core, app.state.llm = core, llm
     app.state.limiter = DailyLimiter(settings.public_calls_per_day)
+    app.state.dials = dial.DialStore()
+    app.state.dial_guard = dial.DialGuard(settings)
+    app.state.dialer = dial.Dialer(settings)
     app.state.calls = StateStore()  # per-call Gather-graph state
     app.state.jobs = {}  # job_id -> OutboundJob; filled by the dialer (V4)
     log.info(
@@ -59,9 +64,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ACP Voice", version=__version__, lifespan=lifespan)
+    # The dial pad is a web page on another origin (GitHub Pages) calling this API.
+    # `ngrok-skip-browser-warning` lets it get past ngrok's free-tier interstitial.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().dialpad_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
+        max_age=600,
+    )
     app.include_router(routes_health.router)
     app.include_router(routes_voice.router)
     app.include_router(routes_graph.router)
+    app.include_router(routes_dial.router)
+    app.include_router(live.router)
     app.include_router(relay_ws.router)
     return app
 

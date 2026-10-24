@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AICTE Voice Assistant - Call me</title>
+  <style>
+    :root {
+      --ink: #1a3a5c; --ink-hover: #14304d; --muted: #666; --faint: #999;
+      --line: #d0d7de; --bg: #eef2f7; --card: #fff;
+      --ok-bg: #e6f4ea; --ok-fg: #1e6e3a; --ok-line: #a8d5b5;
+      --err-bg: #fdecea; --err-fg: #a01c1c; --err-line: #f5aea8;
+      --info-bg: #eaf1fb; --info-fg: #1a3a5c; --info-line: #b9cfee;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #8fb4e3; --ink-hover: #a9c6ec; --muted: #aab3bd; --faint: #7d8793;
+        --line: #38424d; --bg: #11161c; --card: #1a212a;
+        --ok-bg: #16301f; --ok-fg: #8fd6a4; --ok-line: #2c5a3a;
+        --err-bg: #371a1a; --err-fg: #f1a6a0; --err-line: #6b2f2c;
+        --info-bg: #17263a; --info-fg: #a9c6ec; --info-line: #2b4466;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; padding: 20px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg); color: var(--muted);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    .card {
+      background: var(--card); border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.12);
+      padding: 32px 28px; width: 100%; max-width: 420px;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    .logo-icon {
+      width: 44px; height: 44px; border-radius: 11px; background: #1a3a5c;
+      display: flex; align-items: center; justify-content: center; font-size: 22px;
+    }
+    .logo-text { font-size: 1rem; font-weight: 700; color: var(--ink); }
+    .logo-sub { font-size: .75rem; color: var(--faint); }
+    h1 { margin: 0 0 6px; font-size: 1.2rem; color: var(--ink); }
+    p.lead { margin: 0 0 22px; font-size: .88rem; line-height: 1.5; }
+    label { display: block; font-size: .8rem; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
+    input, select {
+      width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px;
+      font-size: 1rem; outline: none; background: transparent; color: inherit;
+      -webkit-appearance: none; appearance: none;
+    }
+    select { background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+      background-position: calc(100% - 20px) 55%, calc(100% - 15px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
+    input:focus, select:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(26,58,92,.15); }
+    .field { margin-bottom: 16px; }
+    .hint { font-size: .74rem; color: var(--faint); margin-top: 6px; line-height: 1.4; }
+    button {
+      width: 100%; padding: 14px; background: #1a3a5c; color: #fff; border: 0; border-radius: 9px;
+      font-size: 1rem; font-weight: 600; cursor: pointer; transition: background .15s;
+    }
+    button:hover:not(:disabled) { background: #14304d; }
+    button:disabled { background: #aab3bd; cursor: not-allowed; }
+    #status {
+      margin-top: 16px; padding: 12px 14px; border-radius: 9px; font-size: .88rem;
+      line-height: 1.45; display: none; border: 1px solid transparent;
+    }
+    #status.ok { background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-line); }
+    #status.err { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-line); }
+    #status.info { background: var(--info-bg); color: var(--info-fg); border-color: var(--info-line); }
+    .foot { margin-top: 20px; font-size: .72rem; color: var(--faint); text-align: center; line-height: 1.6; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #aab3bd; margin-right: 5px; }
+    .dot.up { background: #2e9e57; } .dot.down { background: #d64545; }
+    .linklike { background: none; border: 0; padding: 0; width: auto; color: var(--faint); font-size: .72rem;
+      text-decoration: underline; cursor: pointer; } .linklike:hover:not(:disabled) { background: none; color: var(--ink); }
+    [hidden] { display: none !important; }
+  </style>
+  <script src="config.js"></script>
+</head>
+<body>
+<main class="card">
+  <div class="logo">
+    <div class="logo-icon" aria-hidden="true">&#9742;&#65039;</div>
+    <div>
+      <div class="logo-text">AICTE Voice Assistant</div>
+      <div class="logo-sub">Approval &amp; Compliance Portal</div>
+    </div>
+  </div>
+
+  <h1>Call me</h1>
+  <p class="lead">Enter your number and the assistant will phone you. Answer and just talk &mdash;
+    you can interrupt it any time.</p>
+
+  <form id="form" autocomplete="on">
+    <div class="field">
+      <label for="phone">Your phone number</label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" value="+91 "
+             placeholder="+91 98765 43210" required autocomplete="tel" autofocus>
+      <div class="hint">Spaces are fine &mdash; e.g. +91 98765 43210</div>
+    </div>
+
+    <div class="field" id="scenarioField" hidden>
+      <label for="scenario">What should the call be about?</label>
+      <select id="scenario" name="scenario"></select>
+    </div>
+
+    <div class="field" id="codeField" hidden>
+      <label for="code">Access code</label>
+      <input id="code" name="code" type="password" autocomplete="off" placeholder="Ask the organiser">
+    </div>
+
+    <button id="btn" type="submit">&#9742;&#65039; Call me now</button>
+  </form>
+
+  <div id="status" role="status" aria-live="polite"></div>
+
+  <div class="foot">
+    <div><span class="dot" id="dot"></span><span id="backend">Checking the assistant&hellip;</span></div>
+    <div id="apiRow" hidden>
+      <label for="api" style="font-weight:400">Backend address</label>
+      <input id="api" type="url" placeholder="https://your-name.ngrok-free.dev">
+    </div>
+    <button type="button" class="linklike" id="changeApi">change backend</button>
+  </div>
+</main>
+
+<script>
+  (function () {
+    "use strict";
+
+    // ---- where the backend lives ----------------------------------------------------------
+    // Order: ?api=... in the address bar (remembered), then config.js, then the last one used.
+    const fromQuery = new URLSearchParams(location.search).get("api");
+    const fromConfig = (window.DIALPAD_CONFIG && window.DIALPAD_CONFIG.api) || "";
+    const store = {
+      get() { try { return localStorage.getItem("dialpad.api") || ""; } catch (e) { return ""; } },
+      set(v) { try { localStorage.setItem("dialpad.api", v); } catch (e) { /* private mode */ } },
+    };
+    const clean = (u) => (u || "").trim().replace(/\/+$/, "");
+    let API = clean(fromQuery) || clean(fromConfig) || clean(store.get());
+    if (fromQuery) store.set(API);
+
+    const $ = (id) => document.getElementById(id);
+    const form = $("form"), btn = $("btn"), statusEl = $("status"), phoneEl = $("phone");
+
+    // ngrok's free tier otherwise answers browsers with an HTML "you are about to visit" page.
+    const HEADERS = { "ngrok-skip-browser-warning": "true" };
+
+    function show(kind, text) {
+      statusEl.className = kind;
+      statusEl.textContent = text;
+      statusEl.style.display = "block";
+    }
+
+    async function api(path, options) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 20000);
+      try {
+        const res = await fetch(API + path, Object.assign({ signal: ctl.signal }, options));
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok, status: res.status, data };
+      } finally { clearTimeout(timer); }
+    }
+
+    // ---- backend check + options --------------------------------------------------------------
+    async function loadBackend() {
+      $("apiRow").hidden = !!API;
+      $("api").value = API;
+      if (!API) {
+        $("dot").className = "dot down";
+        $("backend").textContent = "No backend address set";
+        $("apiRow").hidden = false;
+        return;
+      }
+      try {
+        const r = await api("/dial/config", { headers: HEADERS });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        $("dot").className = "dot up";
+        $("backend").textContent = "Assistant is online";
+        $("codeField").hidden = !r.data.code_required;
+        const scenarios = r.data.scenarios || {};
+        const names = Object.keys(scenarios);
+        $("scenarioField").hidden = names.length === 0;
+        $("scenario").replaceChildren(...names.map((k) => {
+          const o = document.createElement("option"); o.value = k; o.textContent = scenarios[k]; return o;
+        }));
+        btn.disabled = r.data.enabled === false;
+        if (r.data.enabled === false) show("err", "The dial pad is switched off right now.");
+      } catch (e) {
+        $("dot").className = "dot down";
+        $("backend").textContent = "Can't reach the assistant right now";
+        show("err", "Could not reach the backend. If you run it yourself, check that the server and the ngrok tunnel are running.");
+      }
+    }
+
+    $("changeApi").addEventListener("click", () => { $("apiRow").hidden = false; $("api").focus(); });
+    $("api").addEventListener("change", () => { API = clean($("api").value); store.set(API); statusEl.style.display = "none"; loadBackend(); });
+
+    // keep the caret after the "+91 " default
+    phoneEl.addEventListener("focus", () => {
+      if (phoneEl.selectionStart === 0) { const n = phoneEl.value.length; phoneEl.setSelectionRange(n, n); }
+    });
+
+    // ---- placing the call and following it ------------------------------------------------------
+    const LABEL = {
+      queued: ["info", "Placing the call…"],
+      initiated: ["info", "Placing the call…"],
+      ringing: ["info", "Ringing — please answer your phone."],
+      "in-progress": ["ok", "Connected — you're on the call. Go ahead and talk."],
+      completed: ["ok", "Call ended. Thank you!"],
+      busy: ["err", "Your line was busy. Please try again."],
+      "no-answer": ["err", "No answer. Please try again."],
+      failed: ["err", "The call could not be connected."],
+      canceled: ["err", "The call was cancelled."],
+    };
+    const TERMINAL = new Set(["completed", "busy", "no-answer", "failed", "canceled"]);
+    let pollTimer = null;
+
+    function follow(sid) {
+      clearTimeout(pollTimer);
+      const started = Date.now();
+      const tick = async () => {
+        try {
+          const r = await api("/dial/status/" + encodeURIComponent(sid), { headers: HEADERS });
+          if (r.ok) {
+            const [kind, text] = LABEL[r.data.status] || ["info", "Status: " + r.data.status];
+            show(kind, text);
+            if (TERMINAL.has(r.data.status)) { btn.disabled = false; btn.innerHTML = "&#9742;&#65039; Call me again"; return; }
+          }
+        } catch (e) { /* keep trying */ }
+        if (Date.now() - started < 10 * 60 * 1000) pollTimer = setTimeout(tick, 2000);
+        else { btn.disabled = false; btn.innerHTML = "&#9742;&#65039; Call me now"; }
+      };
+      tick();
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!API) { show("err", "Set the backend address first (bottom of the card)."); return; }
+      btn.disabled = true; btn.textContent = "Calling…";
+      show("info", "Contacting the assistant…");
+      const body = new URLSearchParams({
+        // Twilio needs strict E.164; the server also tidies this, this just saves a round trip.
+        phone: phoneEl.value.replace(/[^\d+]/g, ""),
+        scenario: $("scenarioField").hidden ? "public" : $("scenario").value,
+        code: $("code").value,
+      });
+      try {
+        const r = await api("/dial/call", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/x-www-form-urlencoded" }, HEADERS),
+          body,
+        });
+        if (r.ok) { show("info", r.data.message || "Calling you now…"); follow(r.data.call_sid); return; }
+        show("err", r.data.detail || ("Something went wrong (" + r.status + ")."));
+      } catch (err) {
+        show("err", "Could not reach the assistant. Please try again in a moment.");
+      }
+      btn.disabled = false; btn.innerHTML = "&#9742;&#65039; Call me now";
+    });
+
+    loadBackend();
+  })();
+</script>
+</body>
+</html>

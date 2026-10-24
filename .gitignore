@@ -27,3 +27,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 .idea/
+
+# Local run state (logs, pids) written by scripts/start_all.ps1
+.run/

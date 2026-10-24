@@ -91,6 +91,33 @@ class Settings(BaseSettings):
     # per language. Empty = Twilio default model.
     gather_speech_models_json: str = ""
 
+    # -- Live voice (ConversationRelay) -------------------------------------
+    # Empty = let Twilio choose its documented default for the language (for en-IN:
+    # an ElevenLabs voice, Google speech-to-text). Override only after hearing a call.
+    relay_tts_provider: str = ""  # Google | Amazon | ElevenLabs
+    relay_voice: str = ""  # voice id (ElevenLabs ids accept a model suffix, e.g. -flash_v2_5)
+    relay_stt_provider: str = ""  # Google | Deepgram
+    relay_stt_model: str = ""  # e.g. telephony | long | nova-3-general
+    # How readily the caller can cut in while the agent talks: low | medium | high.
+    relay_interrupt_sensitivity: Literal["low", "medium", "high"] = "medium"
+    # Ignore short "mm-hmm" / "okay" while the agent is talking (no false barge-in).
+    relay_ignore_backchannel: bool = True
+
+    # -- Dial pad: the "call me" page and POST /dial/call ---------------------
+    dial_pad_enabled: bool = True
+    # Optional access code the page asks for. Empty = no code (rate limits still apply).
+    dial_pad_token: SecretStr = SecretStr("")
+    # Browser origins allowed to call /dial/* (CORS): the GitHub Pages site.
+    dialpad_allowed_origins: str = "https://gojosatorou999.github.io,http://localhost:8080"
+    # Only numbers starting with one of these prefixes can be dialled (comma-separated).
+    dial_allowed_prefixes: str = "+91"
+    dial_per_number_per_hour: int = Field(default=3, ge=1, le=100)
+    dial_per_ip_per_hour: int = Field(default=10, ge=1, le=1000)
+    dial_global_per_day: int = Field(default=100, ge=1, le=100_000)
+    # Demo scenarios (public / institution / officer / faculty) on the dial pad. Needs the
+    # mock core; refused in production.
+    demo_scenarios: bool = False
+
     # -- Outbound calling (used by the V4 dialer) -------------------------
     call_hours_start: str = "10:00"
     call_hours_end: str = "18:00"
@@ -99,10 +126,12 @@ class Settings(BaseSettings):
     # Calling days, Python weekday numbers (Mon=0). app.md: Mon-Sat.
     call_days: str = "0,1,2,3,4,5"
     # How calls are conversed:
-    #   gather - deterministic Twilio <Gather> graph; NO LLM in the call path (default)
-    #   relay  - LLM over ConversationRelay for every turn (needs LLM_API_KEY)
+    #   gather - deterministic graph over Twilio <Gather>/<Say>; NO LLM (basic robotic voice)
+    #   live   - the same graph over Twilio ConversationRelay: streaming speech-to-text and a
+    #            human-sounding text-to-speech voice, barge-in; NO LLM in the call path
+    #   relay  - an LLM over ConversationRelay for every turn (needs LLM_API_KEY)
     #   hybrid - Gather graph, with the LLM relay only for questions the graph can't answer
-    conversation_mode: Literal["gather", "relay", "hybrid"] = "gather"
+    conversation_mode: Literal["gather", "live", "relay", "hybrid"] = "gather"
     # Languages offered on calls, comma-separated short codes. English only by default;
     # set ENABLED_LANGUAGES=en,hi,te,ml,ta,kn to bring back the six-language menu.
     enabled_languages: str = "en"
@@ -191,6 +220,14 @@ class Settings(BaseSettings):
         return frozenset(int(d) for d in self.call_days.split(",") if d.strip().isdigit())
 
     @property
+    def dialpad_origins(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.dialpad_allowed_origins.split(",") if o.strip()]
+
+    @property
+    def dial_prefixes(self) -> list[str]:
+        return [p.strip() for p in self.dial_allowed_prefixes.split(",") if p.strip()]
+
+    @property
     def llm_enabled(self) -> bool:
         return bool(self.llm_api_key.get_secret_value())
 
@@ -218,6 +255,8 @@ class Settings(BaseSettings):
             problems.append("TWILIO_SIGNATURE_VALIDATION_ENABLED must be true")
         if self.demo_mode:
             problems.append("DEMO_MODE must be false in production")
+        if self.demo_scenarios:
+            problems.append("DEMO_SCENARIOS must be false in production")
         if problems:
             raise RuntimeError("Production boot refused: " + "; ".join(problems))
 

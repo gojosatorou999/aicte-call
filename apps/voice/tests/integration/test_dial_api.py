@@ -1,0 +1,257 @@
+"""The dial pad API and the outbound-call webhook, end to end (Twilio's REST client faked)."""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+import pytest
+
+from app import dial
+from app.config import get_settings
+from app.session import IdentitySource, Persona, verify_session
+from tests.helpers import FakeCalls, relay_session_param
+from tests.phone import ForbiddenLLM, open_graph
+
+PAGES = "https://gojosatorou999.github.io"
+PUBLIC_URL = "https://abc.ngrok-free.dev"
+NUMBER = "+919876543210"
+
+
+@pytest.fixture
+def api():
+    opened = []
+
+    def _open(*, error=None, mode="live", **settings):
+        s = get_settings()
+        s.twilio_account_sid, s.twilio_voice_number = "ACtest", "+15005550006"
+        s.twilio_auth_token = type(s.twilio_auth_token)("tok")
+        s.public_voice_url = PUBLIC_URL
+        client, core = open_graph(mode=mode, **settings)
+        calls = FakeCalls(error)
+        client.app.state.dialer = dial.Dialer(
+            s, client_factory=lambda sid, tok: type("C", (), {"calls": calls})()
+        )
+        opened.append(client)
+        return client, calls, core
+
+    ForbiddenLLM.calls = 0
+    yield _open
+    for c in opened:
+        c.__exit__(None, None, None)
+    assert ForbiddenLLM.calls == 0
+
+
+def post_call(client, phone=NUMBER, **extra):
+    return client.post("/dial/call", data={"phone": phone, **extra}, headers={"origin": PAGES})
+
+
+# -- /dial/call ----------------------------------------------------------------------------------
+def test_call_me_places_a_twilio_call_to_the_number_with_our_webhook(api):
+    client, calls, _ = api()
+    r = post_call(client, "+91 98765 43210")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["call_sid"] == "CAfake1" and body["status"] == "queued"
+    sent = calls.created[0]
+    assert sent["to"] == NUMBER
+    assert sent["url"].startswith(f"{PUBLIC_URL}/voice/outbound-twiml?d=")
+    assert sent["status_callback"] == f"{PUBLIC_URL}/voice/status"
+
+
+def test_old_page_contract_still_works(api):
+    """The earlier page posted form-encoded `phone` and read `call_sid` / `detail`."""
+    client, _, _ = api()
+    r = client.post(
+        "/dial/call",
+        data={"phone": "9876543210"},
+        headers={"ngrok-skip-browser-warning": "true", "origin": PAGES},
+    )
+    assert r.status_code == 200 and "call_sid" in r.json()
+    bad = client.post("/dial/call", data={"phone": "123"})
+    assert bad.status_code == 400 and "detail" in bad.json()
+
+
+def test_cors_allows_the_dial_pad_origin_and_the_ngrok_header_only(api):
+    client, _, _ = api()
+    pre = client.options(
+        "/dial/call",
+        headers={
+            "origin": PAGES,
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type,ngrok-skip-browser-warning",
+        },
+    )
+    assert pre.status_code == 200
+    assert pre.headers["access-control-allow-origin"] == PAGES
+    assert "ngrok-skip-browser-warning" in pre.headers["access-control-allow-headers"].lower()
+    assert post_call(client).headers["access-control-allow-origin"] == PAGES
+
+    other = client.options(
+        "/dial/call",
+        headers={"origin": "https://evil.example", "access-control-request-method": "POST"},
+    )
+    assert "access-control-allow-origin" not in other.headers
+
+
+def test_untouched_when_twilio_credentials_are_missing(api):
+    client, calls, _ = api()
+    get_settings().twilio_account_sid = ""
+    r = post_call(client)
+    assert r.status_code == 503 and "TWILIO_ACCOUNT_SID" in r.json()["detail"]
+    assert calls.created == []
+    # and a misconfigured server does not eat the person's allowance
+    get_settings().twilio_account_sid = "ACtest"
+    assert post_call(client).status_code == 200
+
+
+def test_trial_account_unverified_number_gets_a_clear_message(api):
+    from twilio.base.exceptions import TwilioRestException
+
+    client, _, _ = api(error=TwilioRestException(status=400, uri="/Calls", msg="x", code=21608))
+    r = post_call(client)
+    assert r.status_code == 403 and "isn't verified" in r.json()["detail"]
+
+
+def test_limits_and_country_allowlist_apply(api):
+    client, calls, _ = api(dial_per_number_per_hour=1)
+    assert post_call(client).status_code == 200
+    again = post_call(client)
+    assert again.status_code == 429 and "recently" in again.json()["detail"]
+    abroad = post_call(client, "+14155552671")
+    assert abroad.status_code == 403
+    assert len(calls.created) == 1
+
+
+def test_optional_access_code(api):
+    from pydantic import SecretStr
+
+    client, calls, _ = api(dial_pad_token=SecretStr("open-sesame"))
+    assert client.get("/dial/config").json()["code_required"] is True
+    assert post_call(client).status_code == 401
+    assert post_call(client, code="wrong").status_code == 401
+    assert post_call(client, code="open-sesame").status_code == 200
+    bearer = client.post(
+        "/dial/call",
+        data={"phone": "+919876543211"},
+        headers={"authorization": "Bearer open-sesame"},
+    )
+    assert bearer.status_code == 200 and len(calls.created) == 2
+
+
+def test_dial_pad_can_be_switched_off(api):
+    client, calls, _ = api(dial_pad_enabled=False)
+    assert post_call(client).status_code == 404 and calls.created == []
+
+
+def test_scenarios_are_refused_unless_demo_scenarios_is_on(api):
+    client, calls, _ = api()
+    assert client.get("/dial/config").json()["scenarios"] == {}
+    assert post_call(client, scenario="officer").status_code == 403
+    assert post_call(client, scenario="nonsense").status_code == 400
+    assert calls.created == []
+
+
+def test_status_endpoint_follows_twilio_status_callbacks(api):
+    client, _, _ = api()
+    sid = post_call(client).json()["call_sid"]
+    assert client.get(f"/dial/status/{sid}").json()["status"] == "queued"
+    for status in ("ringing", "in-progress", "completed"):
+        r = client.post("/voice/status", data={"CallSid": sid, "CallStatus": status})
+        assert r.status_code == 204
+        assert client.get(f"/dial/status/{sid}").json()["status"] == status
+    assert client.get("/dial/status/CA-nope").status_code == 404
+
+
+# -- /voice/outbound-twiml ---------------------------------------------------------------------
+def answer(client, calls, to=NUMBER, sid="CAfake1"):
+    """Place the call, then do what Twilio does when the phone is answered."""
+    r = post_call(client, to, scenario=getattr(answer, "scenario", "public"))
+    assert r.status_code == 200, r.text
+    url = calls.created[-1]["url"]
+    path = url.removeprefix(PUBLIC_URL)
+    return client.post(
+        path, data={"CallSid": sid, "To": to, "From": "+15005550006", "Direction": "outbound-api"}
+    )
+
+
+def test_answered_call_connects_the_live_graph_with_a_human_voice(api):
+    client, calls, core = api()
+    r = answer(client, calls)
+    relay = ET.fromstring(r.text).find("Connect/ConversationRelay")
+    assert relay is not None
+    assert relay.get("url") == "wss://abc.ngrok-free.dev/voice/live"
+    assert relay.get("language") == "en-IN"
+    assert "AICTE assistant, calling as you requested" in relay.get("welcomeGreeting")
+    assert (
+        relay.get("voice") is None and relay.get("ttsProvider") is None
+    )  # Twilio's default human voice
+    assert (
+        relay.get("interruptSensitivity") == "medium" and relay.get("ignoreBackchannel") == "true"
+    )
+    claims = verify_session(relay_session_param(r.text))
+    assert (claims.persona, claims.identity_source) == (Persona.PUBLIC, IdentitySource.ANONYMOUS)
+    assert claims.language == "en"
+    reg = core.calls("POST", "/calls")[0]
+    assert b'"OUTBOUND"' in reg.read()
+
+
+def test_voice_overrides_reach_the_twiml(api):
+    client, calls, _ = api(
+        relay_tts_provider="ElevenLabs",
+        relay_voice="abc123-flash_v2_5",
+        relay_stt_provider="Deepgram",
+        relay_stt_model="nova-3-general",
+    )
+    relay = ET.fromstring(answer(client, calls).text).find("Connect/ConversationRelay")
+    assert (relay.get("ttsProvider"), relay.get("voice")) == ("ElevenLabs", "abc123-flash_v2_5")
+    assert (relay.get("transcriptionProvider"), relay.get("speechModel")) == (
+        "Deepgram",
+        "nova-3-general",
+    )
+
+
+def test_a_registered_number_gets_its_own_persona_without_demo_mode(api):
+    client, calls, _ = api()
+    r = answer(client, calls, to="+910000000001")  # mock core: an institution contact
+    claims = verify_session(relay_session_param(r.text))
+    assert (claims.persona, claims.subject_id) == (Persona.INSTITUTION, "inst-001")
+    assert claims.identity_source == IdentitySource.CALLER_ID
+
+
+@pytest.mark.parametrize(
+    ("scenario", "persona", "identity", "has_job"),
+    [
+        ("institution", Persona.INSTITUTION, IdentitySource.OUTBOUND_JOB, True),
+        ("officer", Persona.OFFICER, IdentitySource.CALLER_ID, False),
+        ("faculty", Persona.FACULTY, IdentitySource.CALLER_ID, False),
+        ("public", Persona.PUBLIC, IdentitySource.ANONYMOUS, False),
+    ],
+)
+def test_demo_scenarios_choose_the_conversation(api, scenario, persona, identity, has_job):
+    client, calls, _ = api(demo_scenarios=True)
+    answer.scenario = scenario
+    try:
+        r = answer(client, calls)
+    finally:
+        del answer.scenario
+    claims = verify_session(relay_session_param(r.text))
+    assert (claims.persona, claims.identity_source) == (persona, identity)
+    assert bool(claims.job_id) is has_job
+    if has_job:
+        assert claims.job_id in client.app.state.jobs
+    assert set(client.get("/dial/config").json()["scenarios"]) == set(dial.SCENARIOS)
+
+
+def test_gather_mode_outbound_starts_the_graph_with_the_greeting(api):
+    client, calls, _ = api(mode="gather")
+    root = ET.fromstring(answer(client, calls).text)
+    says = [e.text for e in root.iter("Say")]
+    assert any("calling as you requested" in t for t in says)
+    assert root.find("Gather") is not None and root.find("Connect") is None
+
+
+def test_expired_or_unknown_call_link_hangs_up_politely(api):
+    client, _, _ = api()
+    r = client.post("/voice/outbound-twiml?d=nope", data={"CallSid": "CA1", "To": NUMBER})
+    root = ET.fromstring(r.text)
+    assert "expired" in root.find("Say").text and root.find("Hangup") is not None

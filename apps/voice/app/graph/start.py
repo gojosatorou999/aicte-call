@@ -1,4 +1,4 @@
-"""Start a Gather-graph conversation for a routed call."""
+"""Create the per-call state for a routed call and decide its first step."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from app.session import SessionClaims
 GREETING = "Hello, this is the AICTE assistant."
 
 
-async def start_call(
+async def create_call(
     *,
     claims: SessionClaims,
     token: str,
@@ -24,9 +24,12 @@ async def start_call(
     store: StateStore,
     settings: Settings,
     job: OutboundJob | None,
-    recording_callback: str | None,
-) -> str:
-    """Build the call state and return the TwiML for the first prompt."""
+    greeting: str | None = GREETING,
+) -> tuple[CallState, Step]:
+    """Build the call state and its first Step.
+
+    `greeting` is spoken before the first prompt; pass None when something else
+    (Twilio's welcomeGreeting on the live path) has already greeted the caller."""
     policy = SessionPolicy(claims, settings)
     call = CallState(
         call_sid=claims.call_sid,
@@ -37,8 +40,8 @@ async def start_call(
         hybrid_available=settings.conversation_mode == "hybrid" and settings.llm_enabled,
     )
 
+    say = [greeting] if greeting and not job else []
     kind = policy.verification_needed()
-    say = [] if job else [GREETING]
     if kind != Verification.NONE:
         call.verifier = Verifier(
             kind=kind,
@@ -49,12 +52,7 @@ async def start_call(
             ),
         )
         if not await call.verifier.begin():  # could not send the one-time code
-            return render(
-                call,
-                Step(say=[*say, MSG_TECHNICAL], end=True),
-                settings,
-                recording_callback=recording_callback,
-            )
+            return call, Step(say=[*say, MSG_TECHNICAL], end=True)
         first = "verify_pin" if kind == Verification.PIN else "verify_otp"
     elif job is not None:
         first = "out_open"
@@ -64,4 +62,28 @@ async def start_call(
         first = MENU_NODE[claims.persona.value]
 
     store.put(call)
-    return render(call, Step(say=say, goto=first), settings, recording_callback=recording_callback)
+    return call, Step(say=say, goto=first)
+
+
+async def start_call(
+    *,
+    claims: SessionClaims,
+    token: str,
+    core: CoreClient,
+    store: StateStore,
+    settings: Settings,
+    job: OutboundJob | None,
+    recording_callback: str | None,
+    greeting: str | None = GREETING,
+) -> str:
+    """Gather path: build the state and return the TwiML for the first prompt."""
+    call, step = await create_call(
+        claims=claims,
+        token=token,
+        core=core,
+        store=store,
+        settings=settings,
+        job=job,
+        greeting=greeting,
+    )
+    return render(call, step, settings, recording_callback=recording_callback)

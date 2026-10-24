@@ -137,3 +137,57 @@ def unavailable() -> str:
     vr.say(UNAVAILABLE_EN, language="en-IN")
     vr.hangup()
     return str(vr)
+
+
+# Words the speech-to-text should favour. Static: ConversationRelay takes one hint list per call.
+LIVE_HINTS = (
+    "AICTE, B Tech, M Tech, institution, institute, college, undertaking, extension, commitment, "
+    "grievance, complaint, approved, approval, WhatsApp, officer"
+)
+
+
+def live(
+    *,
+    ws_url: str,
+    session_jwt: str,
+    welcome: str,
+    recording_callback: str | None,
+    settings: Settings | None = None,
+) -> str:
+    """Connect the call to the live graph (`/voice/live`) over ConversationRelay.
+
+    Voice, speech-to-text provider and model are left to Twilio's documented default
+    for en-IN (an ElevenLabs voice) unless RELAY_* settings override them: a Twilio
+    default is known to be valid, an untested combination can fail the call."""
+    s = settings or get_settings()
+    vr = VoiceResponse()
+    if recording_callback:
+        vr.start().recording(
+            recording_status_callback=recording_callback,
+            recording_status_callback_method="POST",
+            recording_status_callback_event="completed",
+            channels="dual",
+            track="both",
+        )
+    attrs: dict[str, str] = {
+        "url": ws_url,
+        "language": langs.LANGUAGES["en"].bcp47,
+        "welcome_greeting": welcome,
+        "interruptible": "any",
+        "interrupt_sensitivity": s.relay_interrupt_sensitivity,
+        "ignore_backchannel": "true" if s.relay_ignore_backchannel else "false",
+        "dtmf_detection": "true",
+        "profanity_filter": "false",  # abuse detection is ours (guardrails.py), on the raw words
+        "hints": LIVE_HINTS,
+    }
+    for attr, value in (
+        ("tts_provider", s.relay_tts_provider),
+        ("voice", s.relay_voice),
+        ("transcription_provider", s.relay_stt_provider),
+        ("speech_model", s.relay_stt_model),
+    ):
+        if value:
+            attrs[attr] = value
+    node = vr.connect().conversation_relay(**attrs)
+    node.parameter(name="session", value=session_jwt)
+    return str(vr)
