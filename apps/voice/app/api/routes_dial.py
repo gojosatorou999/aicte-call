@@ -21,6 +21,13 @@ from app.utils.hashing import hash_msisdn, mask_msisdn
 router = APIRouter(prefix="/dial", tags=["dial"])
 log = get_logger(__name__)
 POLL_EVERY_SEC = 1.5
+NEVER_CONNECTED_HINT = (
+    "The call was answered but ended before the voice connected. Twilio's live voice "
+    "(ConversationRelay) is most likely not switched on for this Twilio account: in the Twilio "
+    "Console open Voice > Settings > Privacy & Security (older console: Voice > Settings > General) "
+    "and accept the 'Predictive and Generative AI/ML Features Addendum', then try again. "
+    "If it is already on, set CONVERSATION_MODE=gather in .env and restart."
+)
 
 
 def _error(status: int, detail: str) -> JSONResponse:
@@ -113,4 +120,14 @@ async def dial_status(request: Request, call_sid: str) -> JSONResponse:
         record.checked = time.monotonic()
         if (fresh := await dialer.fetch_status(call_sid)) is not None:
             store.update_status(call_sid, fresh)
-    return JSONResponse({"call_sid": call_sid, "status": record.status})
+    body: dict[str, object] = {"call_sid": call_sid, "status": record.status}
+    s = get_settings()
+    if (
+        s.conversation_mode == "live"
+        and not s.is_production()  # operator advice: not for the public in production
+        and record.status == "completed"
+        and record.fetches > 0  # it was answered...
+        and not record.ws_connected  # ...but the voice never connected
+    ):
+        body["hint"] = NEVER_CONNECTED_HINT
+    return JSONResponse(body)

@@ -28,6 +28,7 @@ from app import relay_ws
 from app.agent.personas import OutboundJob
 from app.config import Settings, get_settings
 from app.core_client import CoreClient
+from app.dial import DialStore
 from app.graph.engine import REGISTRY, Input, Kind, Step, run_turn
 from app.graph.render import spoken_lines
 from app.graph.start import create_call
@@ -49,6 +50,7 @@ class LiveCall:
     settings: Settings
     store: StateStore
     jobs: dict[str, OutboundJob]
+    dials: DialStore | None = None  # lets the dial pad learn that the voice really connected
     call: CallState | None = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -62,6 +64,8 @@ class LiveCall:
         if setup is None:
             return
         claims = setup.claims
+        if self.dials and (record := self.dials.by_sid(claims.call_sid)):
+            record.ws_connected = True
         structlog.contextvars.bind_contextvars(
             call_sid=claims.call_sid, persona=claims.persona.value, mode="live"
         )
@@ -209,4 +213,5 @@ async def live(ws: WebSocket) -> None:
         settings=get_settings(),
         store=state.calls,
         jobs=state.jobs,
+        dials=state.dials,
     ).run()

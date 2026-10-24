@@ -222,7 +222,7 @@
           const r = await api("/dial/status/" + encodeURIComponent(sid), { headers: HEADERS });
           if (r.ok) {
             const [kind, text] = LABEL[r.data.status] || ["info", "Status: " + r.data.status];
-            show(kind, text);
+            if (r.data.hint) show("err", r.data.hint); else show(kind, text);
             if (TERMINAL.has(r.data.status)) { btn.disabled = false; btn.innerHTML = "&#9742;&#65039; Call me again"; return; }
           }
         } catch (e) { /* keep trying */ }

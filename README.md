@@ -64,6 +64,7 @@ carries its own webhook address, built from `PUBLIC_VOICE_URL`.
 | 2 | Put that number, in `+E.164` form (e.g. `+14155552671`), in **`TWILIO_VOICE_NUMBER`** | `apps/voice/.env` | **You** |
 | 3 | **Verify your own phone** so a *trial* account may call it (Phone Numbers → Manage → Verified Caller IDs → Add) | console.twilio.com | **You: needed on a trial account** |
 | 4 | Allow calls to India: Voice → Settings → **Geo permissions** → tick *India* | console.twilio.com | **You: check** |
+| 4b | **Switch on ConversationRelay** (the live, human-sounding voice): Console → Voice → Settings → **Privacy & Security** (older console: Voice → Settings → General) → accept the *Predictive and Generative AI/ML Features Addendum* → Save. A legal acceptance only the account owner can make. Without it, calls are answered and then end after ~1 second; the dial pad then says so | console.twilio.com | **You: needed for `live` mode** |
 | 5 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | `apps/voice/.env` | Done — Twilio accepted them |
 | 6 | ngrok authtoken | stored by ngrok on this PC (`ngrok config add-authtoken …`) — **not in this project** | Done |
 | 7 | Backend address | `PUBLIC_VOICE_URL` in `apps/voice/.env` **and** `api` in `dialpad/config.js` | Done (both set) |

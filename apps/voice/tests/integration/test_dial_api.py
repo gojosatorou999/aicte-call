@@ -343,3 +343,49 @@ def test_every_other_endpoint_still_requires_a_signature(api):
     client, _, good = placed(api)
     for path in ("/voice/inbound", "/voice/connect?lang=en", "/voice/status", "/voice/recording"):
         assert client.post(path, data=good).status_code == 403, path
+
+
+# -- the page explains a call that ended before the live voice connected --------------------------
+def finish(client, sid, status="completed"):
+    client.post("/voice/status", data={"CallSid": sid, "CallStatus": status})
+    return client.get(f"/dial/status/{sid}").json()
+
+
+def test_a_call_that_ends_before_the_voice_connects_is_diagnosed(api):
+    client, calls, _ = api()
+    r = answer(client, calls)  # Twilio fetched our TwiML...
+    assert ET.fromstring(r.text).find("Connect/ConversationRelay") is not None
+    body = finish(client, "CAfake1")  # ...but the call ended and the WebSocket never opened
+    assert body["status"] == "completed"
+    assert "ConversationRelay" in body["hint"] and "AI/ML Features Addendum" in body["hint"]
+
+
+def test_no_diagnosis_when_the_voice_did_connect(api):
+    from tests.helpers import reply_text, setup_msg
+
+    client, calls, _ = api()
+    r = answer(client, calls)
+    token = relay_session_param(r.text)
+    with client.websocket_connect("/voice/live") as ws:
+        ws.send_text(setup_msg(tok=token, call_sid="CAfake1"))
+        assert reply_text(ws)  # the graph speaks first
+    assert "hint" not in finish(client, "CAfake1")
+
+
+def test_no_diagnosis_for_a_call_nobody_answered_or_in_gather_mode(api):
+    client, calls, _ = api()
+    assert post_call(client).status_code == 200  # placed, never answered: TwiML never fetched
+    assert "hint" not in finish(client, "CAfake1", "no-answer")
+
+    client2, calls2, _ = api(mode="gather")
+    answer(client2, calls2)
+    assert "hint" not in finish(client2, "CAfake1")
+
+
+def test_no_operator_advice_is_shown_in_production(api):
+    from app.config import AppEnv
+
+    client, calls, _ = api()
+    answer(client, calls)
+    get_settings().app_env = AppEnv.PRODUCTION
+    assert "hint" not in finish(client, "CAfake1")

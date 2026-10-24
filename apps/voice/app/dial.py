@@ -116,6 +116,7 @@ class DialRecord:
     to_masked: str
     to_hash: str = ""  # HMAC of the dialled number: lets us check Twilio's `To`
     fetches: int = 0  # how many times Twilio has fetched this call's TwiML
+    ws_connected: bool = False  # the live voice WebSocket reached us for this call
     created: float = field(default_factory=time.monotonic)
     call_sid: str = ""
     status: str = "queued"
