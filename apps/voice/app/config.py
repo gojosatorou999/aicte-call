@@ -133,6 +133,12 @@ class Settings(BaseSettings):
             raise ValueError(f"expected HH:MM, got {v!r}")
         return f"{int(hh):02d}:{int(mm):02d}"
 
+    @field_validator("public_voice_url", mode="before")
+    @classmethod
+    def _blank_url_means_default(cls, v: object) -> object:
+        """`PUBLIC_VOICE_URL=` left empty in .env must not wipe out the default."""
+        return v if isinstance(v, str) and v.strip() else "http://localhost:8080"
+
     @field_validator("twilio_voices_json", "gather_speech_models_json")
     @classmethod
     def _json_object(cls, v: str) -> str:

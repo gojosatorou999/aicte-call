@@ -23,6 +23,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level, log_file=settings.log_file or None)
     settings.require_production_secrets()
+    log = get_logger(__name__)
+    if (
+        settings.twilio_signature_validation_enabled
+        and not settings.twilio_auth_token.get_secret_value()
+    ):
+        log.warning(
+            "twilio_auth_token_missing",
+            effect="every Twilio webhook will be rejected with 403",
+            fix="set TWILIO_AUTH_TOKEN in apps/voice/.env (or, for local testing only, "
+            "TWILIO_SIGNATURE_VALIDATION_ENABLED=false)",
+        )
+    if settings.public_voice_url.startswith("http://localhost") and not settings.is_production():
+        log.info(
+            "public_voice_url_is_local",
+            note="set PUBLIC_VOICE_URL to your ngrok URL for real calls",
+        )
     tools = load_tool_specs()  # contract drift must fail at boot, not mid-call
     core = CoreClient(settings)
     llm = OpenAIChat(settings) if settings.llm_enabled else None
@@ -30,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.limiter = DailyLimiter(settings.public_calls_per_day)
     app.state.calls = StateStore()  # per-call Gather-graph state
     app.state.jobs = {}  # job_id -> OutboundJob; filled by the dialer (V4)
-    get_logger(__name__).info(
+    log.info(
         "voice_started", tools=len(tools), env=settings.app_env.value, llm=settings.llm_enabled
     )
     try:

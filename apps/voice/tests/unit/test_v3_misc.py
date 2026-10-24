@@ -104,3 +104,12 @@ def test_visit_confirmation_is_not_a_commitment_call():
     job = OutboundJob("j", CallPurpose.EVC_VISIT_CONFIRM, "Inst", "Ramesh", "EVC visit", "VIS-1")
     ctx = outbound_context(job)
     assert "NOT call record_commitment" in ctx and "not about a deadline" in ctx
+
+
+def test_blank_public_url_in_env_falls_back_to_the_default(monkeypatch):
+    monkeypatch.setenv("PUBLIC_VOICE_URL", "")
+    get_settings.cache_clear()
+    assert get_settings().public_base == "http://localhost:8080"
+    monkeypatch.setenv("PUBLIC_VOICE_URL", "https://abc.ngrok-free.app/")
+    get_settings.cache_clear()
+    assert get_settings().public_base == "https://abc.ngrok-free.app"
