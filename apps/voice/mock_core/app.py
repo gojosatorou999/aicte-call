@@ -1,0 +1,102 @@
+"""Hand-written stand-in for core's `/internal/voice/*` (app.md 13.13) until
+Track P ships the OpenAPI export (P8). Run: `uvicorn mock_core.app:app --port 9000`.
+
+Responses are canned from seeded data and only as realistic as the voice
+tests need. It does check the bearer token, like the real thing."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+
+_TOKEN = os.environ.get("INTERNAL_SERVICE_TOKEN", "change-me-voice-to-core")
+
+INSTITUTION = {
+    "id": "inst-001",
+    "name": "Sri Venkateswara Institute of Technology",
+    "city": "Anantapur",
+    "state": "Andhra Pradesh",
+}
+
+
+def _auth(authorization: str = Header(default="")) -> None:
+    if authorization != f"Bearer {_TOKEN}":
+        raise HTTPException(401, detail={"error": {"code": "UNAUTHORIZED", "params": {}}})
+
+
+app = FastAPI(title="ACP core (voice mock)", dependencies=[Depends(_auth)])
+P = "/internal/voice"
+
+
+@app.get(f"{P}/callers/lookup")
+def lookup(phone: str) -> dict[str, Any]:
+    if phone.endswith("0001"):
+        return {"kind": "INSTITUTION", "institution_id": INSTITUTION["id"], "contact_name": "Ramesh Kumar", "preferred_language": "te"}
+    if phone.endswith("0002"):
+        return {"kind": "OFFICER", "officer_id": "off-001", "preferred_language": "en"}
+    return {"kind": "UNKNOWN"}
+
+
+@app.get(f"{P}/institutions/me/open-items")
+def open_items() -> dict[str, Any]:
+    return {"items": [{"subject_ref": "UND-2026-0042", "title": "Lease registration", "due_date": "2026-11-05", "overdue": False}]}
+
+
+@app.get(f"{P}/cases/{{app_id}}/status")
+def case_status(app_id: str) -> dict[str, Any]:
+    return {"app_id": app_id, "stage": "SCRUTINY", "status": "IN_PROGRESS"}
+
+
+@app.post(f"{P}/commitments")
+def commitment(body: dict[str, Any]) -> dict[str, Any]:
+    return {"id": "cmt-001", **body}
+
+
+@app.post(f"{P}/extension-requests")
+def extension(body: dict[str, Any]) -> dict[str, Any]:
+    return {"id": "ext-001", "status": "PENDING_OFFICER_REVIEW", **body}
+
+
+@app.post(f"{P}/callbacks")
+def callback(body: dict[str, Any]) -> dict[str, Any]:
+    return {"id": "cb-001", **body}
+
+
+@app.get(f"{P}/public/institutions")
+def search_institutions(name: str, state: str | None = None) -> dict[str, Any]:
+    hit = name.lower() in INSTITUTION["name"].lower()
+    return {"results": [INSTITUTION] if hit else []}
+
+
+@app.get(f"{P}/public/institutions/{{institution_id}}/approval")
+def approval(institution_id: str, academic_year: str | None = None) -> dict[str, Any]:
+    if institution_id != INSTITUTION["id"]:
+        raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "params": {}}})
+    return {
+        "institution_id": institution_id,
+        "academic_year": academic_year or "2026-27",
+        "approved": True,
+        "courses": [{"name": "B.Tech CSE", "intake": 120}, {"name": "B.Tech ECE", "intake": 60}],
+    }
+
+
+@app.post(f"{P}/grievances")
+def grievance(body: dict[str, Any]) -> dict[str, Any]:
+    return {"ticket_id": "GRV-2026-0001", **body}
+
+
+@app.post(f"{P}/calls")
+def call_start(body: dict[str, Any]) -> dict[str, Any]:
+    return {"call_id": "call-001", **body}
+
+
+@app.post(f"{P}/calls/{{call_id}}/status")
+def call_status(call_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    return {"call_id": call_id, "ok": True}
+
+
+@app.post(f"{P}/calls/{{call_id}}/outcome")
+def call_outcome(call_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    return {"call_id": call_id, "ok": True}

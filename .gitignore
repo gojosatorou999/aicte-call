@@ -1,0 +1,32 @@
+# Unrelated older project that lives in this folder (has its own .git, .env, binaries)
+finl call/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.import_linter_cache/
+*.egg-info/
+
+# Local data, logs, tunnels
+*.db
+*.sqlite3
+*.log
+data/voice.db
+cloudflared.exe
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/

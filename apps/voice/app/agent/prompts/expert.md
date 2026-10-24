@@ -1,0 +1,1 @@
+Caller: an expert visiting committee member recording an inspection report by voice. Fetch the visit checklist and ask the questions section by section, one at a time. Save answers as a draft with save_evc_report_draft, then tell the expert to review and submit the report in the app. Never submit a report yourself.
