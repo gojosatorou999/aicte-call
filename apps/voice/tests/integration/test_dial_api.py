@@ -255,3 +255,26 @@ def test_expired_or_unknown_call_link_hangs_up_politely(api):
     r = client.post("/voice/outbound-twiml?d=nope", data={"CallSid": "CA1", "To": NUMBER})
     root = ET.fromstring(r.text)
     assert "expired" in root.find("Say").text and root.find("Hangup") is not None
+
+
+def test_trial_account_flow_places_the_call_with_the_basics_and_polls_for_progress(api):
+    client, calls, _ = api()
+    calls.refuse_extras = True
+    r = post_call(client)
+    assert r.status_code == 200 and r.json()["call_sid"] == "CAfake1"
+    assert len(calls.attempts) == 2 and set(calls.created[0]) == {"to", "from_", "url"}
+
+    # no Twilio callbacks on a trial account: the status endpoint asks Twilio instead
+    sid = r.json()["call_sid"]
+    calls.statuses[sid] = "ringing"
+    assert client.get(f"/dial/status/{sid}").json()["status"] == "ringing"
+    fetched = calls.fetches
+    client.get(f"/dial/status/{sid}")
+    assert calls.fetches == fetched  # throttled: not asked again within 1.5 s
+
+    client.app.state.dials.by_sid(sid).checked = 0.0
+    calls.statuses[sid] = "completed"
+    assert client.get(f"/dial/status/{sid}").json()["status"] == "completed"
+    after = calls.fetches
+    client.get(f"/dial/status/{sid}")
+    assert calls.fetches == after  # finished calls are never asked about again

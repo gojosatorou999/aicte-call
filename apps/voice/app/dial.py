@@ -115,6 +115,7 @@ class DialRecord:
     created: float = field(default_factory=time.monotonic)
     call_sid: str = ""
     status: str = "queued"
+    checked: float = 0.0  # when status was last fetched from Twilio (monotonic)
 
 
 class DialStore:
@@ -207,14 +208,39 @@ _TWILIO_ERRORS: dict[int, tuple[int, str]] = {
 }
 
 
+def _is_parameter_restriction(exc: TwilioRestException) -> bool:
+    """Trial accounts may not use optional call parameters (status callbacks, timeouts ...)."""
+    text = str(exc.msg or "").lower()
+    return "limited parameter access" in text or "disallowed parameters" in text
+
+
+TERMINAL_STATUSES = frozenset({"completed", "busy", "failed", "no-answer", "canceled"})
+
+
 class Dialer:
-    """Places the outbound call through Twilio's REST API."""
+    """Places the outbound call through Twilio's REST API.
+
+    It first asks for the full set of options (status callbacks, ring timeout). A Twilio trial
+    account refuses those with "limited parameter access"; nothing is dialled when that happens,
+    so the dialler retries with only To / From / Url - which every account accepts - and remembers
+    it. In that mode call progress is read from Twilio's API instead of from callbacks."""
 
     def __init__(
         self, settings: Settings, client_factory: Callable[[str, str], Any] | None = None
     ) -> None:
         self._s = settings
         self._client_factory = client_factory or Client
+        self._minimal = False  # True once Twilio has said this account cannot use the extras
+
+    @property
+    def polls_status(self) -> bool:
+        """No status callbacks in minimal mode, so progress must be fetched."""
+        return self._minimal
+
+    def _client(self) -> Any:
+        return self._client_factory(
+            self._s.twilio_account_sid, self._s.twilio_auth_token.get_secret_value()
+        )
 
     def configured(self) -> str | None:
         """None if ready, otherwise what is missing (shown to the operator)."""
@@ -231,34 +257,60 @@ class Dialer:
         return f"Not configured on the server: {', '.join(missing)}." if missing else None
 
     async def place(self, *, to: str, url: str, status_callback: str) -> tuple[str, str]:
-        def create() -> Any:
-            client = self._client_factory(
-                self._s.twilio_account_sid, self._s.twilio_auth_token.get_secret_value()
-            )
-            return client.calls.create(
-                to=to,
-                from_=self._s.twilio_voice_number,
-                url=url,
-                method="POST",
-                status_callback=status_callback,
-                status_callback_method="POST",
-                status_callback_event=["initiated", "ringing", "answered", "completed"],
-                timeout=30,  # ring for 30 s, then give up (no answering-machine wait: a person asked for this call)
+        full = {
+            "method": "POST",
+            "status_callback": status_callback,
+            "status_callback_method": "POST",
+            "status_callback_event": ["initiated", "ringing", "answered", "completed"],
+            # Ring for 30 s then give up. No answering-machine detection: a person asked for this call.
+            "timeout": 30,
+        }
+
+        def create(extras: dict[str, Any]) -> Any:
+            return self._client().calls.create(
+                to=to, from_=self._s.twilio_voice_number, url=url, **extras
             )
 
+        attempts = [{}] if self._minimal else [full, {}]
+        for n, extras in enumerate(attempts):
+            try:
+                call = await asyncio.to_thread(create, extras)
+                return str(call.sid), str(call.status)
+            except TwilioRestException as exc:
+                if extras and _is_parameter_restriction(exc) and n + 1 < len(attempts):
+                    log.info("dial_trial_minimal_mode", note="optional call parameters refused")
+                    self._minimal = True
+                    continue
+                # The operator needs Twilio's own words; visitors only see the friendly text below.
+                log.warning(
+                    "dial_twilio_error",
+                    code=exc.code,
+                    status=exc.status,
+                    twilio_message=str(exc.msg)[:400],
+                )
+                if _is_parameter_restriction(exc):
+                    raise DialError(
+                        502,
+                        "This Twilio trial account is too limited to place the call. "
+                        "Upgrade the account in the Twilio console.",
+                    ) from exc
+                status, message = _TWILIO_ERRORS.get(
+                    exc.code or 0,
+                    (502, "Twilio could not place the call. Check the server log for details."),
+                )
+                raise DialError(status, message) from exc
+            except TwilioException as exc:  # network / client trouble
+                log.warning("dial_twilio_unreachable", error=type(exc).__name__)
+                raise DialError(502, "Could not reach Twilio. Please try again.") from exc
+        raise DialError(502, "Twilio could not place the call.")  # not reachable
+
+    async def fetch_status(self, call_sid: str) -> str | None:
+        """The call's current status straight from Twilio (queued, ringing, in-progress, ...)."""
         try:
-            call = await asyncio.to_thread(create)
-        except TwilioRestException as exc:
-            log.warning("dial_twilio_error", code=exc.code, status=exc.status)
-            status, message = _TWILIO_ERRORS.get(
-                exc.code or 0,
-                (502, "Twilio could not place the call. Check the server log for details."),
-            )
-            raise DialError(status, message) from exc
-        except TwilioException as exc:  # network / client trouble
-            log.warning("dial_twilio_unreachable", error=type(exc).__name__)
-            raise DialError(502, "Could not reach Twilio. Please try again.") from exc
-        return str(call.sid), str(call.status)
+            call = await asyncio.to_thread(lambda: self._client().calls(call_sid).fetch())
+        except TwilioException:
+            return None
+        return str(call.status)
 
 
 def demo_job(dial_id: str) -> OutboundJob:

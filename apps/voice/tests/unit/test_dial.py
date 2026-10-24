@@ -141,3 +141,52 @@ def test_store_tracks_status_by_sid_and_forgets_old_records():
     rec.created -= dial.RECORD_TTL_SEC + 1
     store.create("public", "x")
     assert store.get(rec.dial_id) is None and store.by_sid("CA1") is None
+
+
+async def test_trial_account_refusing_extras_falls_back_to_the_basics_and_remembers():
+    calls = FakeCalls(refuse_extras=True)
+    d = dialer_with(calls)
+    assert d.polls_status is False
+    sid, _ = await d.place(
+        to="+919876543210",
+        url="https://x/voice/outbound-twiml?d=a",
+        status_callback="https://x/voice/status",
+    )
+    assert sid == "CAfake1"
+    assert (
+        len(calls.attempts) == 2
+    )  # the full request was refused (nothing dialled), then the basics
+    basics = calls.created[0]
+    assert set(basics) == {"to", "from_", "url"}
+    assert d.polls_status is True
+
+    await d.place(to="+919876543211", url="https://x/u", status_callback="https://x/s")
+    assert len(calls.attempts) == 3  # remembered: one attempt this time, not two
+
+
+async def test_a_paid_account_keeps_the_status_callbacks():
+    calls = FakeCalls()
+    d = dialer_with(calls)
+    await d.place(to="+919876543210", url="https://x/u", status_callback="https://x/s")
+    assert "status_callback" in calls.created[0] and d.polls_status is False
+
+
+async def test_a_second_restriction_error_is_reported_not_retried_forever():
+
+    class Stubborn(FakeCalls):
+        def create(self, **kw):
+            self.attempts.append(kw)
+            from twilio.base.exceptions import TwilioRestException
+
+            raise TwilioRestException(status=400, uri="/", msg="limited parameter access", code=0)
+
+    d = dialer_with(Stubborn())
+    with pytest.raises(dial.DialError) as ei:
+        await d.place(to="+919876543210", url="u", status_callback="s")
+    assert ei.value.status == 502 and "too limited" in ei.value.detail
+
+
+async def test_status_is_read_from_twilio():
+    calls = FakeCalls()
+    calls.statuses["CAx"] = "ringing"
+    assert await dialer_with(calls).fetch_status("CAx") == "ringing"

@@ -198,12 +198,41 @@ def press(ws, digits: str) -> None:
 
 
 class FakeCalls:
-    def __init__(self, error=None):
+    """Stands in for `client.calls`: `.create(...)` places a call, `calls(sid).fetch()` reads one."""
+
+    def __init__(self, error=None, refuse_extras=False):
         self.created = []
+        self.attempts = []  # every create() call, including refused ones
         self.error = error
+        self.refuse_extras = refuse_extras  # act like a trial account
+        self.statuses = {}  # sid -> status returned by fetch()
+        self.fetches = 0
+
+    def __call__(self, sid):
+        calls = self
+
+        class Resource:
+            def fetch(self):
+                calls.fetches += 1
+                return type("Call", (), {"status": calls.statuses.get(sid, "queued")})()
+
+        return Resource()
 
     def create(self, **kw):
+        self.attempts.append(kw)
         if self.error:
             raise self.error
+        extras = set(kw) - {"to", "from_", "url"}
+        if self.refuse_extras and extras:  # exactly what a Twilio trial account answers
+            from twilio.base.exceptions import TwilioRestException
+
+            raise TwilioRestException(
+                status=400,
+                uri="/Accounts/ACx/Calls.json",
+                msg="Unable to create record: Invalid or disallowed parameters provided - "
+                "trial accounts have limited parameter access, upgrade your account to unlock "
+                "full functionality",
+                code=0,
+            )
         self.created.append(kw)
         return type("Call", (), {"sid": "CAfake1", "status": "queued"})()

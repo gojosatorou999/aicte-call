@@ -8,6 +8,7 @@ two read-only endpoints the page uses to show progress.
 from __future__ import annotations
 
 import hmac
+import time
 
 from fastapi import APIRouter, Form, Header, Request
 from fastapi.responses import JSONResponse
@@ -19,6 +20,7 @@ from app.utils.hashing import mask_msisdn
 
 router = APIRouter(prefix="/dial", tags=["dial"])
 log = get_logger(__name__)
+POLL_EVERY_SEC = 1.5
 
 
 def _error(status: int, detail: str) -> JSONResponse:
@@ -93,7 +95,18 @@ async def initiate_call(
 @router.get("/status/{call_sid}")
 async def dial_status(request: Request, call_sid: str) -> JSONResponse:
     """queued -> ringing -> in-progress -> completed (or busy / no-answer / failed)."""
-    record = request.app.state.dials.by_sid(call_sid)
+    store: dial.DialStore = request.app.state.dials
+    record = store.by_sid(call_sid)
     if record is None:
         return _error(404, "Unknown call.")
+    dialer: dial.Dialer = request.app.state.dialer
+    # Accounts that cannot use status callbacks get progress by asking Twilio (at most every 1.5 s).
+    if (
+        dialer.polls_status
+        and record.status not in dial.TERMINAL_STATUSES
+        and time.monotonic() - record.checked >= POLL_EVERY_SEC
+    ):
+        record.checked = time.monotonic()
+        if (fresh := await dialer.fetch_status(call_sid)) is not None:
+            store.update_status(call_sid, fresh)
     return JSONResponse({"call_sid": call_sid, "status": record.status})
