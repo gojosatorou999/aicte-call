@@ -28,10 +28,22 @@ class Language:
 LANGUAGES: dict[str, Language] = {
     lang.code: lang
     for lang in (
-        Language("en", "en-IN", "English", "English", "1", "en-IN-Standard-A", ("english", "इंग्लिश", "अंग्रेजी")),
-        Language("hi", "hi-IN", "Hindi", "हिन्दी", "2", "hi-IN-Standard-A", ("hindi", "हिंदी", "हिन्दी")),
+        Language(
+            "en",
+            "en-IN",
+            "English",
+            "English",
+            "1",
+            "en-IN-Standard-A",
+            ("english", "इंग्लिश", "अंग्रेजी"),
+        ),
+        Language(
+            "hi", "hi-IN", "Hindi", "हिन्दी", "2", "hi-IN-Standard-A", ("hindi", "हिंदी", "हिन्दी")
+        ),
         Language("te", "te-IN", "Telugu", "తెలుగు", "3", "te-IN-Standard-A", ("telugu", "తెలుగు")),
-        Language("ml", "ml-IN", "Malayalam", "മലയാളം", "4", "ml-IN-Standard-A", ("malayalam", "മലയാളം")),
+        Language(
+            "ml", "ml-IN", "Malayalam", "മലയാളം", "4", "ml-IN-Standard-A", ("malayalam", "മലയാളം")
+        ),
         Language("ta", "ta-IN", "Tamil", "தமிழ்", "5", "ta-IN-Standard-A", ("tamil", "தமிழ்")),
         Language("kn", "kn-IN", "Kannada", "ಕನ್ನಡ", "6", "kn-IN-Standard-A", ("kannada", "ಕನ್ನಡ")),
     )

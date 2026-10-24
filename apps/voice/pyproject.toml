@@ -11,22 +11,15 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "httpx>=0.27",
-    "python-multipart>=0.0.20",   # FastAPI Form(...) parsing on /voice/*
+    "python-multipart>=0.0.20",   # request.form() on the Twilio webhooks
     # -- Config / validation ---------------------------------------------
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    "pyyaml>=6.0",
     "tzdata>=2024.2",              # zoneinfo has no system tz database on Windows / slim images
-    # -- Data / persistence ----------------------------------------------
-    "sqlalchemy[asyncio]>=2.0.36",
-    "aiosqlite>=0.20",
-    "asyncpg>=0.30",
-    "alembic>=1.14",
-    "redis>=5.2",
     # -- Telephony / auth -------------------------------------------------
     "twilio>=9.3",
     "pyjwt>=2.9",
-    # -- LLM (bounded extraction, post-call outcome, dictation) -----------
+    # -- LLM (only for CONVERSATION_MODE=relay / hybrid) ------------------
     "openai>=1.50",
     # -- Observability ----------------------------------------------------
     "structlog>=24.4",
@@ -37,7 +30,6 @@ dev = [
     "ruff>=0.8",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
-    "import-linter>=2.1",
     "respx>=0.21",
 ]
 
@@ -69,7 +61,6 @@ ignore = [
 "tests/**" = ["S", "ASYNC", "E402", "E731", "B905", "RUF012", "RUF059"]
 "scripts/**" = ["S", "E402", "E731", "B905", "SIM117", "S110"]
 "mock_core/**" = ["S"]
-"alembic/**" = ["I001", "E402"]
 
 # ---------------------------------------------------------------------------
 #  Pytest

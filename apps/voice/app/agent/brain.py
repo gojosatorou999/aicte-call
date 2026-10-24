@@ -226,7 +226,9 @@ class Brain:
         return out
 
     async def _refuse_decision(self, user_msg: dict[str, Any]) -> AsyncIterator[str]:
-        sentences = await self._refuse("Caller asked the assistant to decide on an application; declined.")
+        sentences = await self._refuse(
+            "Caller asked the assistant to decide on an application; declined."
+        )
         self._commit([user_msg, {"role": "assistant", "content": " ".join(sentences)}])
         for s in sentences:
             yield s

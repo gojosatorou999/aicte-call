@@ -40,7 +40,12 @@ P = "/internal/voice"
 @app.get(f"{P}/callers/lookup")
 def lookup(phone: str) -> dict[str, Any]:
     if phone.endswith("0001"):
-        return {"kind": "INSTITUTION", "institution_id": INSTITUTION["id"], "contact_name": "Ramesh Kumar", "preferred_language": "te"}
+        return {
+            "kind": "INSTITUTION",
+            "institution_id": INSTITUTION["id"],
+            "contact_name": "Ramesh Kumar",
+            "preferred_language": "te",
+        }
     if phone.endswith("0002"):
         return {"kind": "OFFICER", "officer_id": "off-001", "preferred_language": "en"}
     if phone.endswith("0003"):
@@ -50,7 +55,16 @@ def lookup(phone: str) -> dict[str, Any]:
 
 @app.get(f"{P}/institutions/me/open-items")
 def open_items() -> dict[str, Any]:
-    return {"items": [{"subject_ref": "UND-2026-0042", "title": "Lease registration", "due_date": "2026-11-05", "overdue": False}]}
+    return {
+        "items": [
+            {
+                "subject_ref": "UND-2026-0042",
+                "title": "Lease registration",
+                "due_date": "2026-11-05",
+                "overdue": False,
+            }
+        ]
+    }
 
 
 @app.get(f"{P}/cases/{{app_id}}/status")
@@ -142,7 +156,10 @@ def region_stats(region_code: str | None = None) -> dict[str, Any]:
 
 @app.get(f"{P}/overdue")
 def overdue(kind: str = "STAGE", limit: int = 5) -> dict[str, Any]:
-    items = [{"subject_ref": f"APP-2026-{400 + i:04d}", "kind": kind, "days_overdue": 3 + i} for i in range(limit)]
+    items = [
+        {"subject_ref": f"APP-2026-{400 + i:04d}", "kind": kind, "days_overdue": 3 + i}
+        for i in range(limit)
+    ]
     return {"count": 3, "items": items[:3]}
 
 
@@ -158,7 +175,11 @@ def reminder(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post(f"{P}/aph/search")
 def aph_search(body: dict[str, Any]) -> dict[str, Any]:
-    return {"results": [{"section": "4.2", "text": "Land documents must be valid for at least 30 years."}]}
+    return {
+        "results": [
+            {"section": "4.2", "text": "Land documents must be valid for at least 30 years."}
+        ]
+    }
 
 
 @app.post(f"{P}/upload-links")

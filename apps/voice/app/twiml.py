@@ -57,9 +57,7 @@ def official_prompt(lang_code: str, identify_url: str, connect_url: str) -> str:
     """Unknown caller: "AICTE official or institution staff? press 9"."""
     lang = langs.get_language(lang_code)
     vr = VoiceResponse()
-    gather = vr.gather(
-        input="dtmf", num_digits=1, timeout=4, action=identify_url, method="POST"
-    )
+    gather = vr.gather(input="dtmf", num_digits=1, timeout=4, action=identify_url, method="POST")
     _say(gather, phrase("official_prompt", lang.code), lang)
     vr.redirect(connect_url, method="POST")
     return str(vr)
@@ -68,9 +66,7 @@ def official_prompt(lang_code: str, identify_url: str, connect_url: str) -> str:
 def enter_number(lang_code: str, action: str, connect_url: str) -> str:
     lang = langs.get_language(lang_code)
     vr = VoiceResponse()
-    gather = vr.gather(
-        input="dtmf", finish_on_key="#", timeout=8, action=action, method="POST"
-    )
+    gather = vr.gather(input="dtmf", finish_on_key="#", timeout=8, action=action, method="POST")
     _say(gather, phrase("enter_number", lang.code), lang)
     vr.redirect(connect_url, method="POST")
     return str(vr)

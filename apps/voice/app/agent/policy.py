@@ -239,7 +239,10 @@ class SessionPolicy:
         try:
             when = datetime.fromisoformat(str(args.get("when", "")))
         except ValueError:
-            return {"error": "invalid_datetime", "hint": "Use an ISO 8601 date and time, India time."}
+            return {
+                "error": "invalid_datetime",
+                "hint": "Use an ISO 8601 date and time, India time.",
+            }
         now = clock.now()
         if when.tzinfo is None:
             when = when.replace(tzinfo=now.tzinfo)
@@ -292,5 +295,8 @@ class GatedToolRunner:
         try:
             r = dates.resolve(phrase, clock.today(), self.policy.claims.language)
         except dates.DateParseError:
-            return {"error": "unparseable", "hint": "Ask the caller for a calendar date, e.g. 'the 20th of November'."}
+            return {
+                "error": "unparseable",
+                "hint": "Ask the caller for a calendar date, e.g. 'the 20th of November'.",
+            }
         return {"date": r.iso, "spoken": r.spoken_en, "spoken_local": r.spoken_local}

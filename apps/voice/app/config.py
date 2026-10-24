@@ -1,10 +1,10 @@
 """Runtime configuration for the ACP voice agent.
 
 Fails at boot on invalid values - never at runtime with a caller on the
-line (CLAUDE.md invariant #7). Loaded once via `get_settings()`.
+line. Loaded once via `get_settings()`.
 
-Env var names follow app.md section 6; anything the voice service needs
-beyond that list is documented in `.env.example`.
+Every setting is an environment variable of the same name (upper case) or a
+line in `.env`; `.env.example` documents the ones that matter.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class AppEnv(StrEnum):
 
 
 class Settings(BaseSettings):
-    """All runtime settings. Field names mirror `.env.example` exactly."""
+    """All runtime settings."""
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # Empty -> derived from internal_service_token.
     session_jwt_secret: SecretStr = SecretStr("")
     session_jwt_ttl_sec: int = Field(default=3600, ge=60, le=86_400)
-    # HMAC timestamp tolerance for core -> voice POST /voice/calls.
+    # HMAC timestamp tolerance for core -> voice POST /voice/calls (V4).
     hmac_tolerance_sec: int = Field(default=300, ge=30, le=3600)
     caller_hash_pepper: SecretStr = SecretStr("dev-only-do-not-use-in-prod")
     admin_api_key: SecretStr = SecretStr("")
@@ -72,25 +72,15 @@ class Settings(BaseSettings):
     core_circuit_open_after: int = Field(default=4, ge=1, le=50)
     core_circuit_reset_sec: float = Field(default=20.0, ge=1.0, le=600.0)
 
-    # -- Data -------------------------------------------------------------
-    redis_url: str = "redis://localhost:6379/0"
-    database_url: str = "sqlite+aiosqlite:///./data/voice.db"
-
     # -- AI ---------------------------------------------------------------
-    llm_provider: Literal["openai"] = "openai"
     llm_model: str = "gpt-4o-mini"
     llm_api_key: SecretStr = SecretStr("")
     llm_timeout_ms: int = Field(default=1500, ge=100, le=20_000)
     llm_max_tokens: int = Field(default=300, ge=10, le=4000)
-    # Speech-to-text for the in-app dictation endpoint (not used on calls:
-    # on calls Twilio <Gather> does the STT).
-    stt_model: str = "gpt-4o-mini-transcribe"
-
     # -- Twilio -----------------------------------------------------------
     twilio_account_sid: str = ""
     twilio_auth_token: SecretStr = SecretStr("")
     twilio_voice_number: str = ""
-    twilio_sms_from: str = ""
     # Dev-only escape hatch. NEVER enable in production: it lets anyone
     # forge webhook events.
     twilio_signature_validation_enabled: bool = True
@@ -101,11 +91,9 @@ class Settings(BaseSettings):
     # per language. Empty = Twilio default model.
     gather_speech_models_json: str = ""
 
-    # -- Voice (Track V) --------------------------------------------------
+    # -- Outbound calling (used by the V4 dialer) -------------------------
     call_hours_start: str = "10:00"
     call_hours_end: str = "18:00"
-    call_max_attempts: int = Field(default=3, ge=1, le=10)
-    call_retry_gap_min: int = Field(default=120, ge=1, le=1440)
     # Comma-separated ISO dates on which outbound calls are not placed.
     call_holidays: str = ""
     # Calling days, Python weekday numbers (Mon=0). app.md: Mon-Sat.
@@ -118,7 +106,6 @@ class Settings(BaseSettings):
     # Languages offered on calls, comma-separated short codes. English only by default;
     # set ENABLED_LANGUAGES=en,hi,te,ml,ta,kn to bring back the six-language menu.
     enabled_languages: str = "en"
-    sarvam_api_key: SecretStr = SecretStr("")  # accepted for env parity; unused (see DECISIONS.md)
 
     # -- Conversation -----------------------------------------------------
     max_call_duration_public_sec: int = Field(default=360, ge=30, le=3600)
@@ -133,27 +120,9 @@ class Settings(BaseSettings):
     public_lookups_per_call: int = Field(default=5, ge=1, le=50)
     pin_max_attempts: int = Field(default=3, ge=1, le=10)
     otp_max_attempts: int = Field(default=3, ge=1, le=10)
-    emergency_number: str = "112"
-    expert_persona_enabled: bool = False
     # Seconds of trailing silence before Twilio finalises an OPEN-ENDED
     # Gather (descriptions, names). 0 = "auto" everywhere.
     gather_open_speech_timeout_sec: int = Field(default=3, ge=0, le=10)
-
-    # -- Outbox relay (post-call delivery to core) ------------------------
-    relay_enabled: bool = True
-    relay_poll_interval_sec: float = Field(default=1.0, ge=0.05, le=60.0)
-    relay_max_attempts: int = Field(default=8, ge=1, le=50)
-
-    # -- Dial pad (dev/demo trigger for outbound calls) -------------------
-    dial_pad_enabled: bool = True
-    # If set, POST /dial/call requires `Authorization: Bearer <token>`.
-    dial_pad_token: SecretStr = SecretStr("")
-    # Comma-separated browser origins allowed to call /dial/* (CORS), e.g.
-    # the GitHub Pages origin hosting dialpad/index.html.
-    dialpad_allowed_origins: str = "http://localhost:8080"
-
-    # -- Ops --------------------------------------------------------------
-    otel_exporter_otlp_endpoint: str | None = None
 
     # -- validators -------------------------------------------------------
     @field_validator("call_hours_start", "call_hours_end")
@@ -214,10 +183,6 @@ class Settings(BaseSettings):
     @property
     def calling_weekdays(self) -> frozenset[int]:
         return frozenset(int(d) for d in self.call_days.split(",") if d.strip().isdigit())
-
-    @property
-    def dialpad_origins(self) -> list[str]:
-        return [o.strip() for o in self.dialpad_allowed_origins.split(",") if o.strip()]
 
     @property
     def llm_enabled(self) -> bool:

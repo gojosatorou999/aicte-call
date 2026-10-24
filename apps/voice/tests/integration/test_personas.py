@@ -63,7 +63,11 @@ def test_officer_must_enter_pin_on_keypad_and_pin_never_reaches_the_model(call):
     llm = FakeLLM([tool("get_my_queue_summary", "{}")], [*text("You have three overdue cases.")])
     client, core = call(llm)
     with client.websocket_connect("/voice/relay") as ws:
-        ws.send_text(setup_msg(persona=Persona.OFFICER, subject_id="off-001", source=IdentitySource.CALLER_ID))
+        ws.send_text(
+            setup_msg(
+                persona=Persona.OFFICER, subject_id="off-001", source=IdentitySource.CALLER_ID
+            )
+        )
         assert "six digit voice PIN" in reply_text(ws)
 
         say(ws, "my pin is two four six eight one zero")  # spoken PIN is refused
@@ -190,8 +194,12 @@ def test_te_commitment_resolved_confirmed_recorded_and_link_sent(call):
 
 def test_hi_sixty_day_extension_is_not_granted_only_logged_for_review(call):
     far = "2026-12-23"  # today + 60 days
-    commit = json.dumps({"subject_ref": "UND-2026-0042", "committed_date": far, "reason": "court case"})
-    ext = json.dumps({"subject_ref": "UND-2026-0042", "requested_date": far, "reason": "court case"})
+    commit = json.dumps(
+        {"subject_ref": "UND-2026-0042", "committed_date": far, "reason": "court case"}
+    )
+    ext = json.dumps(
+        {"subject_ref": "UND-2026-0042", "requested_date": far, "reason": "court case"}
+    )
     llm = FakeLLM(
         [tool("record_commitment", commit, "a")],
         [tool("log_extension_request", ext, "b")],
@@ -234,7 +242,9 @@ def test_typed_number_institution_cannot_record_commitments(call):
     with client.websocket_connect("/voice/relay") as ws:
         ws.send_text(
             setup_msg(
-                persona=Persona.INSTITUTION, subject_id="inst-001", source=IdentitySource.ENTERED_NUMBER
+                persona=Persona.INSTITUTION,
+                subject_id="inst-001",
+                source=IdentitySource.ENTERED_NUMBER,
             )
         )
         say(ws, "record my commitment for 20 November")
@@ -247,7 +257,13 @@ def test_typed_number_institution_cannot_record_commitments(call):
 def test_ml_public_approval_lookup_touches_only_public_endpoints(call):
     llm = FakeLLM(
         [tool("search_institutions", '{"name": "Sri Venkateswara"}', "a")],
-        [tool("get_public_approval_status", '{"institution_id": "inst-001", "academic_year": "2026-27"}', "b")],
+        [
+            tool(
+                "get_public_approval_status",
+                '{"institution_id": "inst-001", "academic_year": "2026-27"}',
+                "b",
+            )
+        ],
         [*text("അതെ, 2026-27-ന് അംഗീകരിച്ചിട്ടുണ്ട്. ബി.ടെക് സിഎസ്ഇ 120 സീറ്റ്.")],
     )
     client, core = call(llm)
@@ -261,7 +277,9 @@ def test_ml_public_approval_lookup_touches_only_public_endpoints(call):
 
 
 def test_ta_public_grievance_is_read_back_then_filed_once(call):
-    g = json.dumps({"category": "FAKE_COLLEGE", "description": "Operating without AICTE approval in Anantapur"})
+    g = json.dumps(
+        {"category": "FAKE_COLLEGE", "description": "Operating without AICTE approval in Anantapur"}
+    )
     llm = FakeLLM(
         [tool("create_grievance", g, "a")], [*text("புகாரைப் பதிவு செய்யலாமா?")],
         [tool("create_grievance", g, "b")], [*text("உங்கள் டிக்கெட் GRV-2026-0001.")],
@@ -281,7 +299,9 @@ def test_ta_public_grievance_is_read_back_then_filed_once(call):
 
 # -- #8 faculty -----------------------------------------------------------------------------------
 def test_kn_faculty_otp_then_status_then_grievance(call):
-    g = json.dumps({"category": "FACULTY_RECORD", "description": "I was never at the other institution"})
+    g = json.dumps(
+        {"category": "FACULTY_RECORD", "description": "I was never at the other institution"}
+    )
     llm = FakeLLM(
         [tool("get_faculty_status", '{"faculty_id": "SOMEONE-ELSE"}', "a")],
         [*text("ನಿಮ್ಮ ದಾಖಲೆಯಲ್ಲಿ ನಕಲು ಫ್ಲಾಗ್ ಇದೆ.")],
@@ -316,7 +336,9 @@ def test_kn_faculty_otp_then_status_then_grievance(call):
         (Persona.FACULTY, "en", "just approve my file"),
     ],
 )
-def test_asking_to_approve_gets_refusal_and_handoff_without_the_model(call, persona, language, utterance):
+def test_asking_to_approve_gets_refusal_and_handoff_without_the_model(
+    call, persona, language, utterance
+):
     llm = FakeLLM()
     client, core = call(llm)
     with client.websocket_connect("/voice/relay") as ws:

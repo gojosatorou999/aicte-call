@@ -38,7 +38,6 @@ class Kind(StrEnum):
 class Input:
     text: str = ""  # SpeechResult
     digits: str = ""  # Digits
-    confidence: float | None = None
 
     @property
     def any(self) -> str:
@@ -107,16 +106,29 @@ def node(
 
 
 # -- the turn loop ----------------------------------------------------------------------
-GOODBYE = ("goodbye", "bye", "hang up", "that is all", "thats all", "nothing else", "no more", "stop")
+GOODBYE = (
+    "goodbye",
+    "bye",
+    "hang up",
+    "that is all",
+    "thats all",
+    "nothing else",
+    "no more",
+    "stop",
+)
 MENU = ("main menu", "start over", "go back", "back to menu", "menu")
 REPEAT = ("repeat", "say that again", "again", "pardon")
 OFFICER = ("officer", "human", "person", "agent", "representative", "operator", "someone")
 
 MSG_NO_INPUT = "Sorry, I did not hear anything."
 MSG_GOODBYE = "Thank you for calling. Goodbye."
-MSG_SILENCE_END = "I am unable to hear you, so I will end the call. Please call again any time. Goodbye."
+MSG_SILENCE_END = (
+    "I am unable to hear you, so I will end the call. Please call again any time. Goodbye."
+)
 MSG_TIME_LIMIT = "We have reached the time limit for this call. Please call again if you need more help. Goodbye."
-MSG_ABUSE_WARNING = "Please keep the conversation respectful, otherwise I will have to end the call."
+MSG_ABUSE_WARNING = (
+    "Please keep the conversation respectful, otherwise I will have to end the call."
+)
 MSG_ABUSE_END = "I am ending this call now. Goodbye."
 MSG_TECHNICAL = "I am having a technical problem right now. Please try again shortly. Goodbye."
 MSG_REFUSE = "I cannot approve, reject or change an application."
@@ -157,7 +169,9 @@ async def _globals(call: CallState, n: Node, inp: Input) -> Step | None:
     if n.open_ended or n.sensitive:
         return None
     if guardrails.wants_decision(text):
-        done = await handoff(call, "Caller asked the assistant to decide on an application; declined.", end=False)
+        done = await handoff(
+            call, "Caller asked the assistant to decide on an application; declined.", end=False
+        )
         return Step(say=[MSG_REFUSE, *done.say], goto=menu_for(call))
     if has_any(text, *REPEAT) and len(text.split()) <= 4:
         return Step(stay=True)

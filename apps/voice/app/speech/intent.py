@@ -71,7 +71,7 @@ def is_negative(text: str) -> bool:
 
 
 def pick_number(text: str, limit: int) -> int | None:
-    """"two", "the second one", "2" -> 2, if within 1..limit."""
+    """ "two", "the second one", "2" -> 2, if within 1..limit."""
     tokens = _tokens(text)
     for token in tokens:
         n = int(token) if token.isdigit() else _NUMBER_WORDS.get(token)

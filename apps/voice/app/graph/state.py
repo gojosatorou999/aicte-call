@@ -24,6 +24,7 @@ from app.agent.verification import Verifier
 from app.core_client import CoreError, CoreUnavailable
 from app.session import SessionClaims
 from app.utils.redact import redact_transcript
+from app.utils.transcript import TranscriptLine
 
 MAX_AGE_SEC = 3 * 3600
 CONSECUTIVE_OUTAGES_LIMIT = 3
@@ -34,13 +35,6 @@ class ToolResult:
     ok: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
-
-
-@dataclass
-class TranscriptLine:
-    role: str  # "assistant" | "caller"
-    text: str  # already redacted
-    at: str
 
 
 @dataclass
@@ -77,7 +71,9 @@ class CallState:
 
     def note(self, role: str, text: str) -> None:
         if text.strip():
-            self.transcript.append(TranscriptLine(role, redact_transcript(text), clock.now().isoformat()))
+            self.transcript.append(
+                TranscriptLine(role, redact_transcript(text), clock.now().isoformat())
+            )
 
     async def tool(
         self, name: str, args: dict[str, Any] | None = None, *, confirmed: bool = False

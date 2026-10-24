@@ -21,7 +21,9 @@ class Inner:
         return {"ok": True}
 
 
-def make(persona=Persona.INSTITUTION, source=IdentitySource.CALLER_ID, subject="inst-001", lang="en"):
+def make(
+    persona=Persona.INSTITUTION, source=IdentitySource.CALLER_ID, subject="inst-001", lang="en"
+):
     claims = SessionClaims("CA1", persona, lang, "ref", identity_source=source, subject_id=subject)
     inner = Inner()
     policy = SessionPolicy(claims, get_settings())
@@ -193,7 +195,9 @@ async def test_extension_request_may_go_beyond_the_commitment_limit():
 
 async def test_callback_time_must_be_in_the_future_and_gets_timezone():
     runner, inner, _ = make()
-    past = await runner.run("schedule_callback", {"when": "2026-10-24T09:00:00", "contact_name": "R"})
+    past = await runner.run(
+        "schedule_callback", {"when": "2026-10-24T09:00:00", "contact_name": "R"}
+    )
     assert past == {"error": "time_in_past"}
     await runner.run("schedule_callback", {"when": "2026-10-26T15:00:00", "contact_name": "R"})
     assert inner.calls[0][1]["when"] == "2026-10-26T15:00:00+05:30"
@@ -219,7 +223,9 @@ async def test_public_lookup_limit_per_call(monkeypatch):
     runner, inner, _ = make(Persona.PUBLIC, source=IdentitySource.ANONYMOUS, subject=None)
     for _ in range(2):
         await runner.run("search_institutions", {"name": "x"})
-    assert await runner.run("search_institutions", {"name": "x"}) == {"error": "lookup_limit_reached"}
+    assert await runner.run("search_institutions", {"name": "x"}) == {
+        "error": "lookup_limit_reached"
+    }
     assert len(inner.calls) == 2
 
 

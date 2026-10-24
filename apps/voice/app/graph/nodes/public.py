@@ -13,7 +13,9 @@ MENU_FIRST = (
     "How can I help? Say check an institution, or press 1. Say file a complaint, or press 2. "
     "Or say officer to request a call back."
 )
-MENU_AGAIN = "Is there anything else? You can check another institution, file a complaint, or say goodbye."
+MENU_AGAIN = (
+    "Is there anything else? You can check another institution, file a complaint, or say goodbye."
+)
 
 CHECK_WORDS = (
     "approved", "approval", "institution", "college", "university", "check", "status",
@@ -45,6 +47,8 @@ def _trim_filler(text: str) -> str:
     while words and filler(words[-1]):
         words.pop()
     return " ".join(words)
+
+
 MAX_COURSES_SPOKEN = 3
 MAX_CHOICES = 3
 MIN_COMPLAINT_CHARS = 10
@@ -58,9 +62,9 @@ def _looks_fake(text: str) -> bool:
     """A complaint about a fake / unapproved institution (vs. an ordinary grievance)."""
     if has_any(text, *FAKE_WORDS):
         return True
-    return has_any(text, "approval", "approved", "recognition", "recognised", "recognized") and has_any(
-        text, "without", "no", "not", "never", "lack", "lacks"
-    )
+    return has_any(
+        text, "approval", "approved", "recognition", "recognised", "recognized"
+    ) and has_any(text, "without", "no", "not", "never", "lack", "lacks")
 
 
 @node(
@@ -76,7 +80,9 @@ async def pub_menu(call: CallState, inp: Input) -> Step:
         return Step(goto="pub_gv_inst")
     if inp.digits == "1" or has_any(text, *CHECK_WORDS):
         name = _trim_filler(text)
-        if len(name.split()) >= 2:  # "is Sri Venkateswara Institute approved": the name came with it
+        if (
+            len(name.split()) >= 2
+        ):  # "is Sri Venkateswara Institute approved": the name came with it
             return await _find_institution(call, name)
         return Step(goto="pub_inst_name")
     if has_any(text, "no", "nothing", "nope"):
@@ -152,7 +158,9 @@ async def _answer_approval(call: CallState, inst: dict[str, Any]) -> Step:
     year = data.get("academic_year", "the current academic year")
     if data.get("approved"):
         courses = list(data.get("courses") or [])
-        spoken = [f"{c.get('name')}, intake {c.get('intake')}" for c in courses[:MAX_COURSES_SPOKEN]]
+        spoken = [
+            f"{c.get('name')}, intake {c.get('intake')}" for c in courses[:MAX_COURSES_SPOKEN]
+        ]
         text = f"{name} is approved for {year}."
         if spoken:
             text += " Approved courses: " + "; ".join(spoken) + "."

@@ -68,10 +68,15 @@ def _finish(call: CallState, say: list[str]) -> Step:
 )
 async def inst_limited(call: CallState, inp: Input) -> Step:
     if is_affirmative(inp.any) or inp.digits == "1":
-        return await handoff(call, "Institution caller identified only by a typed number; needs a verified follow-up.")
+        return await handoff(
+            call,
+            "Institution caller identified only by a typed number; needs a verified follow-up.",
+        )
     if is_negative(inp.any) or inp.digits == "2":
         return Step(say=["Understood. Thank you for calling. Goodbye."], end=True)
-    return await unclear(call, "inst_limited", summary="Typed-number institution caller; reply not understood.")
+    return await unclear(
+        call, "inst_limited", summary="Typed-number institution caller; reply not understood."
+    )
 
 
 # -- inbound menu ---------------------------------------------------------------------------------
@@ -89,10 +94,14 @@ async def inst_menu(call: CallState, inp: Input) -> Step:
     if has_any(t, *ITEMS_WORDS):
         return await _list_items(call)
     if has_any(t, *QUESTION_WORDS):
-        return await fallback(call, "Institution caller has a rules question the menu cannot answer.")
+        return await fallback(
+            call, "Institution caller has a rules question the menu cannot answer."
+        )
     if has_any(t, "no", "nothing", "nope"):
         return Step(say=["Thank you for calling. Goodbye."], end=True)
-    return await unclear(call, "inst_menu", summary="Institution caller's request was not understood.")
+    return await unclear(
+        call, "inst_menu", summary="Institution caller's request was not understood."
+    )
 
 
 async def _fetch_items(call: CallState) -> list[dict[str, Any]] | Step:
@@ -148,10 +157,14 @@ async def inst_pick_item(call: CallState, inp: Input) -> Step:
     items = call.slots.get("items", [])[:MAX_ITEMS_SPOKEN]
     chosen = pick_number(inp.any, len(items))
     if chosen is None:
-        return await unclear(call, "inst_pick_item", summary="Could not tell which item the caller meant.")
+        return await unclear(
+            call, "inst_pick_item", summary="Could not tell which item the caller meant."
+        )
     call.clear("inst_pick_item")
     call.slots["item"] = items[chosen - 1]
-    return Step(goto="inst_commit_date" if call.slots.get("purpose") == "commit" else "inst_ext_date")
+    return Step(
+        goto="inst_commit_date" if call.slots.get("purpose") == "commit" else "inst_ext_date"
+    )
 
 
 # -- commitment -------------------------------------------------------------------------------------
@@ -159,7 +172,9 @@ def _commit_date_prompt(call: CallState) -> str:
     return f"By when will you complete {_item_title(call)}? {DATE_HELP}"
 
 
-@node("inst_commit_date", _commit_date_prompt, hints="tomorrow, next Friday, 20th November, extension")
+@node(
+    "inst_commit_date", _commit_date_prompt, hints="tomorrow, next Friday, 20th November, extension"
+)
 async def inst_commit_date(call: CallState, inp: Input) -> Step:
     t = inp.text
     if has_any(t, *EXTENSION_WORDS) or (call.slots.get("ext_date") and is_affirmative(t)):
@@ -170,12 +185,16 @@ async def inst_commit_date(call: CallState, inp: Input) -> Step:
     try:
         chosen = dates.resolve(t, clock.today(), "en")
     except dates.DateParseError:
-        return await unclear(call, "inst_commit_date", summary="Could not understand the commitment date.")
+        return await unclear(
+            call, "inst_commit_date", summary="Could not understand the commitment date."
+        )
     call.clear("inst_commit_date")
 
     err = call.runner.policy.commitment_error(chosen.date)
     if err and err["error"] == "date_in_past":
-        return Step(say=["That date has already passed. Please give a date in the future."], stay=True)
+        return Step(
+            say=["That date has already passed. Please give a date in the future."], stay=True
+        )
     if err:  # beyond policy
         call.slots["ext_date"] = chosen.date
         latest = _say_date(err["max_date"])
@@ -213,7 +232,9 @@ async def inst_commit_confirm(call: CallState, inp: Input) -> Step:
         call.clear("commit_date", "reason")
         return Step(say=["Okay."], goto="inst_commit_date")
     if not is_affirmative(inp.any) and inp.digits != "1":
-        return await unclear(call, "inst_commit_confirm", summary="Caller did not confirm the commitment.")
+        return await unclear(
+            call, "inst_commit_confirm", summary="Caller did not confirm the commitment."
+        )
     committed: date = call.slots["commit_date"]
     res = await call.tool(
         "record_commitment",
@@ -226,7 +247,10 @@ async def inst_commit_confirm(call: CallState, inp: Input) -> Step:
     )
     if not res.ok:
         if res.error in {"date_in_past", "date_beyond_policy"}:
-            return Step(say=["That date can no longer be recorded. Let us choose another."], goto="inst_commit_date")
+            return Step(
+                say=["That date can no longer be recorded. Let us choose another."],
+                goto="inst_commit_date",
+            )
         return await tool_failed(call, res)
     call.clear("inst_commit_confirm")
     call.slots["recorded"] = committed
@@ -253,9 +277,7 @@ async def inst_link(call: CallState, inp: Input) -> Step:
         if is_negative(t):
             return _finish(call, ["Okay, no link will be sent."])
         return await unclear(call, "inst_link", summary="Caller's link channel was not understood.")
-    res = await call.tool(
-        "send_upload_link", {"subject_ref": _item_ref(call), "channel": channel}
-    )
+    res = await call.tool("send_upload_link", {"subject_ref": _item_ref(call), "channel": channel})
     if not res.ok:
         return await tool_failed(call, res)
     call.clear("inst_link")
@@ -273,10 +295,14 @@ async def inst_ext_date(call: CallState, inp: Input) -> Step:
     try:
         chosen = dates.resolve(inp.text, clock.today(), "en")
     except dates.DateParseError:
-        return await unclear(call, "inst_ext_date", summary="Could not understand the extension date.")
+        return await unclear(
+            call, "inst_ext_date", summary="Could not understand the extension date."
+        )
     call.clear("inst_ext_date")
     if chosen.date < clock.today():
-        return Step(say=["That date has already passed. Please give a date in the future."], stay=True)
+        return Step(
+            say=["That date has already passed. Please give a date in the future."], stay=True
+        )
     call.slots["req_date"] = chosen.date
     return Step(goto="inst_ext_reason")
 
@@ -301,7 +327,9 @@ async def inst_ext_confirm(call: CallState, inp: Input) -> Step:
         call.clear("req_date", "reason")
         return Step(say=["Okay, I have not logged anything."], goto="inst_menu")
     if not is_affirmative(inp.any) and inp.digits != "1":
-        return await unclear(call, "inst_ext_confirm", summary="Caller did not confirm the extension request.")
+        return await unclear(
+            call, "inst_ext_confirm", summary="Caller did not confirm the extension request."
+        )
     res = await call.tool(
         "log_extension_request",
         {
@@ -314,7 +342,9 @@ async def inst_ext_confirm(call: CallState, inp: Input) -> Step:
     if not res.ok:
         return await tool_failed(call, res)
     call.clear("inst_ext_confirm", "req_date", "reason")
-    return _finish(call, ["Your request is logged for officer review. An officer will contact you."])
+    return _finish(
+        call, ["Your request is logged for officer review. An officer will contact you."]
+    )
 
 
 # -- outbound call opening ---------------------------------------------------------------------------------
@@ -351,7 +381,9 @@ async def out_open(call: CallState, inp: Input) -> Step:
     if is_negative(inp.any) or inp.digits == "2":
         return Step(goto="out_callback")
     if not is_affirmative(inp.any) and inp.digits != "1":
-        return await unclear(call, "out_open", summary="Could not confirm who answered the outbound call.")
+        return await unclear(
+            call, "out_open", summary="Could not confirm who answered the outbound call."
+        )
     call.clear("out_open")
     call.slots["item"] = {"subject_ref": job.subject_ref, "title": job.item_title}
     call.slots["purpose"] = "commit"
@@ -361,7 +393,12 @@ async def out_open(call: CallState, inp: Input) -> Step:
     return Step(say=[statement], goto="inst_commit_date")
 
 
-@node("out_visit", "Can you confirm that the campus will be ready on that date? Say yes or no.", kind=Kind.BOTH, num_digits=1)
+@node(
+    "out_visit",
+    "Can you confirm that the campus will be ready on that date? Say yes or no.",
+    kind=Kind.BOTH,
+    num_digits=1,
+)
 async def out_visit(call: CallState, inp: Input) -> Step:
     job = call.job
     assert job is not None
@@ -369,7 +406,9 @@ async def out_visit(call: CallState, inp: Input) -> Step:
         return Step(say=["Thank you for confirming. Goodbye."], end=True)
     if is_negative(inp.any) or inp.digits == "2":
         due = job.due_date.isoformat() if job.due_date else "the scheduled date"
-        done = await handoff(call, f"Institution cannot receive the committee visit on {due}; needs rescheduling.")
+        done = await handoff(
+            call, f"Institution cannot receive the committee visit on {due}; needs rescheduling."
+        )
         return Step(say=["Understood. I will not change the date myself.", *done.say], end=True)
     return await unclear(call, "out_visit", summary="Visit confirmation was not understood.")
 
@@ -391,22 +430,26 @@ async def out_callback(call: CallState, inp: Input) -> Step:
     if have_date and have_time:
         return Step(goto="out_callback_confirm")
     if not have_date and not have_time:
-        return await unclear(call, "out_callback", summary="Wrong person answered; no callback time given.")
+        return await unclear(
+            call, "out_callback", summary="Wrong person answered; no callback time given."
+        )
     ask = "What time?" if have_date else "On which day?"
     return Step(say=[ask], stay=True)
 
 
 def _callback_when(call: CallState) -> datetime:
     hour, minute = call.slots["cb_time"]
-    return datetime.combine(call.slots["cb_date"], datetime.min.time(), tzinfo=clock.now().tzinfo).replace(
-        hour=hour, minute=minute
-    )
+    return datetime.combine(
+        call.slots["cb_date"], datetime.min.time(), tzinfo=clock.now().tzinfo
+    ).replace(hour=hour, minute=minute)
 
 
 def _callback_prompt(call: CallState) -> str:
     when = _callback_when(call)
     day = dates.resolve(when.date().isoformat(), clock.today(), "en").spoken_en
-    return f"I will call back on {day} at {dates.spoken_time(when.hour, when.minute)}. Is that right?"
+    return (
+        f"I will call back on {day} at {dates.spoken_time(when.hour, when.minute)}. Is that right?"
+    )
 
 
 @node("out_callback_confirm", _callback_prompt, kind=Kind.BOTH, num_digits=1)
@@ -417,7 +460,9 @@ async def out_callback_confirm(call: CallState, inp: Input) -> Step:
         call.clear("cb_date", "cb_time")
         return Step(say=["Okay."], goto="out_callback")
     if not is_affirmative(inp.any) and inp.digits != "1":
-        return await unclear(call, "out_callback_confirm", summary="Callback time was not confirmed.")
+        return await unclear(
+            call, "out_callback_confirm", summary="Callback time was not confirmed."
+        )
     when = _callback_when(call)
     res = await call.tool(
         "schedule_callback", {"when": when.isoformat(), "contact_name": job.contact_name}

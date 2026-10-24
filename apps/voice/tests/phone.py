@@ -74,7 +74,9 @@ class Phone:
         self.history = [first]
 
     def _post(self, url: str, **form: str) -> Turn:
-        r = self.client.post(_path(url), data={"CallSid": self.sid, "From": "+910000000000", **form})
+        r = self.client.post(
+            _path(url), data={"CallSid": self.sid, "From": "+910000000000", **form}
+        )
         assert r.status_code == 200, r.text
         self.turn = Turn(r.text)
         self.history.append(self.turn)
@@ -126,8 +128,6 @@ class ForbiddenLLM:
 
 def dial(client: TestClient, from_number: str = "+919999999999", call_sid: str = "CA1") -> Phone:
     """An inbound call that has chosen English (the only enabled language by default)."""
-    r = client.post(
-        "/voice/connect?lang=en", data={"CallSid": call_sid, "From": from_number}
-    )
+    r = client.post("/voice/connect?lang=en", data={"CallSid": call_sid, "From": from_number})
     assert r.status_code == 200, r.text
     return Phone(client, Turn(r.text), call_sid)

@@ -57,7 +57,11 @@ def test_public_approval_lookup_without_any_llm(graph):
     assert "Sri Venkateswara Institute of Technology is approved for 2026-27" in t.text
     assert "B.Tech CSE, intake 120" in t.text and "B.Tech ECE, intake 60" in t.text
     assert "anything else" in t.prompt.lower()
-    assert all("/public/" in r.url.path for r in core.requests if "/callers/" not in r.url.path and "/calls" not in r.url.path)
+    assert all(
+        "/public/" in r.url.path
+        for r in core.requests
+        if "/callers/" not in r.url.path and "/calls" not in r.url.path
+    )
 
 
 def test_public_can_say_the_whole_question_at_once(graph):
@@ -317,7 +321,12 @@ def test_institution_with_two_items_asks_which(graph):
     core.overrides["/open-items"] = {
         "items": [
             {"subject_ref": "UND-1", "title": "Lease registration", "due_date": "2026-11-05"},
-            {"subject_ref": "DOC-2", "title": "Fire safety certificate", "due_date": "2026-11-10", "overdue": True},
+            {
+                "subject_ref": "DOC-2",
+                "title": "Fire safety certificate",
+                "due_date": "2026-11-10",
+                "overdue": True,
+            },
         ]
     }
     phone = dial(client, INSTITUTION)
@@ -344,7 +353,9 @@ def test_typed_number_institution_cannot_use_commitment_flow(graph):
 
     t = phone.say("no")
     assert t.ended
-    phone = dial(client, "+919999999999", call_sid="CA2")  # same again, this time accept the callback
+    phone = dial(
+        client, "+919999999999", call_sid="CA2"
+    )  # same again, this time accept the callback
     r = client.post(
         "/voice/identify-number?lang=en",
         data={"CallSid": "CA3", "From": "+919999999999", "Digits": "0000000001"},
@@ -489,7 +500,11 @@ def test_goodbye_menu_repeat_and_officer_work_from_anywhere(graph):
     assert phone.say("repeat that").node == "pub_inst_name"
     assert phone.say("main menu").node == "pub_menu"
     t = phone.say("can I talk to an officer")
-    assert t.ended and body(core.calls("POST", "/callbacks")[0])["summary"] == "Caller asked to speak to an officer."
+    assert (
+        t.ended
+        and body(core.calls("POST", "/callbacks")[0])["summary"]
+        == "Caller asked to speak to an officer."
+    )
 
     phone = dial(client, call_sid="CA2")
     assert phone.say("goodbye").ended
@@ -501,7 +516,9 @@ def test_free_text_nodes_do_not_trigger_global_commands(graph):
     phone.say("complaint")
     t = phone.say("the officer at that college took money and said goodbye")
     assert t.node == "pub_gv_desc"  # stored as the institution name; did not hand off or end
-    assert not t.ended and client.app.state.calls.get("CA1").slots["gv_inst"].startswith("the officer")
+    assert not t.ended and client.app.state.calls.get("CA1").slots["gv_inst"].startswith(
+        "the officer"
+    )
 
 
 def test_call_time_limit_ends_politely(graph):
@@ -541,7 +558,9 @@ def test_every_node_target_is_registered():
     from app.graph.engine import MENU_NODE, REGISTRY
 
     assert set(MENU_NODE.values()) <= set(REGISTRY)
-    assert {"verify_pin", "verify_otp", "out_open", "inst_commit_confirm", "pub_gv_confirm"} <= set(REGISTRY)
+    assert {"verify_pin", "verify_otp", "out_open", "inst_commit_confirm", "pub_gv_confirm"} <= set(
+        REGISTRY
+    )
 
 
 # -- modes and hybrid hand-off --------------------------------------------------------------------------------------------
@@ -577,7 +596,9 @@ def test_hybrid_hands_unclear_questions_to_the_llm_relay_and_resumes(graph, monk
     assert "Back at the main menu" in back.text and back.node == "off_menu"
 
 
-def test_graph_hands_a_verified_officer_to_the_relay_without_asking_for_the_pin_again(graph, monkeypatch):
+def test_graph_hands_a_verified_officer_to_the_relay_without_asking_for_the_pin_again(
+    graph, monkeypatch
+):
     """The relay side of the hand-off: a verified, via_graph session skips verification
     and can send the caller back to the graph."""
     from tests.helpers import FakeLLM, open_relay, press, recv, reply_text, say, setup_msg, text
@@ -587,7 +608,9 @@ def test_graph_hands_a_verified_officer_to_the_relay_without_asking_for_the_pin_
     try:
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(
-                setup_msg(persona=Persona.OFFICER, subject_id="off-001", verified=True, via_graph=True)
+                setup_msg(
+                    persona=Persona.OFFICER, subject_id="off-001", verified=True, via_graph=True
+                )
             )
             say(ws, "how many cases do I have")
             assert reply_text(ws) == "Sure."  # no PIN prompt first

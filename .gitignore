@@ -1,6 +1,3 @@
-# Unrelated older project that lives in this folder (has its own .git, .env, binaries)
-finl call/
-
 # Secrets and local config
 .env
 .env.*

@@ -7,7 +7,9 @@ from app.graph.engine import MSG_TECHNICAL, Step, fallback, handoff, menu_for
 from app.graph.state import CallState, ToolResult
 
 MSG_UNCLEAR = "Sorry, I did not understand that."
-MSG_LIMIT = "I can only look up a few institutions per call. Please visit the AICTE website for more."
+MSG_LIMIT = (
+    "I can only look up a few institutions per call. Please visit the AICTE website for more."
+)
 
 
 def spell(ref: str) -> str:

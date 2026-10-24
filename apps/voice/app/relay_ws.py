@@ -36,6 +36,7 @@ from app.session import Persona, SessionClaims, verify_session
 from app.speech.intent import has_any
 from app.speech.phrases import phrase
 from app.utils.redact import redact_transcript
+from app.utils.transcript import TranscriptLine
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -47,13 +48,6 @@ END_PADDING_SEC = 1.0  # extra grace after the estimated speech time before endi
 WS_UNAUTHORIZED = 4401
 WS_MISMATCH = 4403
 RETURN_TO_MENU = ("main menu", "go back", "back to menu", "that is all", "thats all", "no thanks")
-
-
-@dataclass
-class TranscriptLine:
-    role: str  # "assistant" | "caller"
-    text: str  # already redacted
-    at: str  # ISO timestamp, demo-clock aware
 
 
 @dataclass
@@ -113,7 +107,9 @@ class RelaySession:
             return False
 
         c = self.claims
-        structlog.contextvars.bind_contextvars(call_sid=c.call_sid, persona=c.persona.value, language=c.language)
+        structlog.contextvars.bind_contextvars(
+            call_sid=c.call_sid, persona=c.persona.value, language=c.language
+        )
         log.info("relay_connected")
         self._note("assistant", phrase("welcome", c.language))  # spoken by Twilio (welcomeGreeting)
 
@@ -223,7 +219,9 @@ class RelaySession:
             # Awaiting keypad entry: what the caller said is not used (it could be
             # the PIN itself), not stored, and not sent to the model.
             assert self.claims is not None
-            await self._say(phrase("use_keypad", self.claims.language) + " " + self._verify_prompt())
+            await self._say(
+                phrase("use_keypad", self.claims.language) + " " + self._verify_prompt()
+            )
             self._arm_silence(self._last_reply_chars)
             return
         self._note("caller", text)
@@ -258,7 +256,9 @@ class RelaySession:
                 await self._say(phrase("goodbye_abuse", lang), end=True)
             return
         if self.claims.via_graph and has_any(text, *RETURN_TO_MENU):
-            await self._say("Okay, going back to the menu.", end=True)  # Twilio then resumes the graph
+            await self._say(
+                "Okay, going back to the menu.", end=True
+            )  # Twilio then resumes the graph
             return
         if self.brain.turn_count >= self.settings.max_turns:
             await self._say(phrase("goodbye_limit", lang), end=True)
@@ -299,13 +299,17 @@ class RelaySession:
 
         Twilio gives no "finished speaking" signal without extra `events`
         configuration, so the wait is estimated from the text length."""
-        await asyncio.sleep(min(spoken_chars / SPEECH_CHARS_PER_SEC + END_PADDING_SEC, MAX_GOODBYE_WAIT_SEC))
+        await asyncio.sleep(
+            min(spoken_chars / SPEECH_CHARS_PER_SEC + END_PADDING_SEC, MAX_GOODBYE_WAIT_SEC)
+        )
         await self._send({"type": "end"})
         self._closing = True
 
     def _note(self, role: str, text: str) -> None:
         if text.strip():
-            self.transcript.append(TranscriptLine(role, redact_transcript(text), clock.now().isoformat()))
+            self.transcript.append(
+                TranscriptLine(role, redact_transcript(text), clock.now().isoformat())
+            )
 
     # -- silence and call limits --------------------------------------------------
     def _cancel_silence(self) -> None:
@@ -330,7 +334,9 @@ class RelaySession:
         text = self._verify_prompt() if self.verifier is not None else phrase("reprompt", lang)
         await self._say(text)
         self._silence_task = asyncio.create_task(
-            self._on_silence(len(text) / SPEECH_CHARS_PER_SEC + self.settings.no_input_timeout_ms / 1000)
+            self._on_silence(
+                len(text) / SPEECH_CHARS_PER_SEC + self.settings.no_input_timeout_ms / 1000
+            )
         )
 
     async def _enforce_deadline(self) -> None:
@@ -357,8 +363,6 @@ def token_of(setup_msg: dict[str, Any]) -> str:
     return str((setup_msg.get("customParameters") or {}).get("session", ""))
 
 
-
-
 @router.websocket("/voice/relay")
 async def relay(ws: WebSocket) -> None:
     await ws.accept()
@@ -373,5 +377,4 @@ async def relay(ws: WebSocket) -> None:
     try:
         await session.run()
     finally:
-
         structlog.contextvars.unbind_contextvars("call_sid", "persona", "language")

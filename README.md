@@ -198,6 +198,22 @@ has ended, not during it.
 service only *answers* calls for now; it doesn't call the Twilio REST API yet), Redis, a
 database.
 
+### Where each key goes
+
+There is exactly one file: **`apps/voice/.env`**. Create it with `copy .env.example .env` (from
+`apps/voice`) and fill in the values; it is gitignored, so it never reaches GitHub.
+
+| Key | Put it in | Variable |
+|---|---|---|
+| Twilio Auth Token | `apps/voice/.env` | `TWILIO_AUTH_TOKEN` |
+| Your public ngrok URL (not a secret) | `apps/voice/.env` **and** the Twilio console webhook fields (§6) | `PUBLIC_VOICE_URL` |
+| ngrok authtoken | **Not in this project.** Run `ngrok config add-authtoken <token>` once; ngrok keeps it in its own config file | – |
+| Secrets you invent (3) | `apps/voice/.env` | `INTERNAL_SERVICE_TOKEN`, `SESSION_JWT_SECRET`, `CALLER_HASH_PEPPER` |
+| OpenAI key (optional) | `apps/voice/.env` | `LLM_API_KEY` |
+| Twilio Account SID, number (later, outbound) | `apps/voice/.env` | `TWILIO_ACCOUNT_SID`, `TWILIO_VOICE_NUMBER` |
+
+Nothing goes in source code, in `README.md`, or in chat.
+
 ### Only if you switch on the LLM (`relay` / `hybrid`)
 
 | What | Where | Goes in |

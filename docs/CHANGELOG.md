@@ -54,3 +54,14 @@
 - `scripts/simulate_call.py` console phone; `tests/phone.py` fake phone; `.env.example`;
   full root `README.md`.
 - Tests: 223 total; in gather mode a stub LLM fails the test if it is ever called.
+
+## Cleanup
+
+- The old Sentinel project (`finl call`) was moved out of the repo folder; it was never part of
+  this repository (it was gitignored).
+- Removed settings, dependencies and config that came from that project and nothing read:
+  Redis/database URLs, outbox relay, dial pad, OTel, Sarvam, SMS sender, retry settings;
+  sqlalchemy, aiosqlite, asyncpg, alembic, redis, pyyaml, import-linter. A fresh environment
+  built from `pyproject.toml` passes the whole suite.
+- One shared `TranscriptLine`; dropped the unused `Input.confidence`; tidied `routes_graph`.
+- Ran `ruff format` over the project (mechanical, no behaviour change).

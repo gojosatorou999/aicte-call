@@ -55,9 +55,17 @@ def test_inbound_rejects_bad_signature(monkeypatch):
     form = {"CallSid": "CA1"}
     with TestClient(create_app()) as c:
         assert c.post("/voice/inbound", data=form).status_code == 403
-        assert c.post("/voice/inbound", data=form, headers={"X-Twilio-Signature": "nope"}).status_code == 403
-        sig = RequestValidator("secret").compute_signature("https://voice.example/voice/inbound", form)
-        assert c.post("/voice/inbound", data=form, headers={"X-Twilio-Signature": sig}).status_code == 200
+        assert (
+            c.post("/voice/inbound", data=form, headers={"X-Twilio-Signature": "nope"}).status_code
+            == 403
+        )
+        sig = RequestValidator("secret").compute_signature(
+            "https://voice.example/voice/inbound", form
+        )
+        assert (
+            c.post("/voice/inbound", data=form, headers={"X-Twilio-Signature": sig}).status_code
+            == 200
+        )
 
 
 def test_session_roundtrip_and_tamper():

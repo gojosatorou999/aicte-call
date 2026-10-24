@@ -8,7 +8,9 @@ from app.graph.nodes.util import tool_failed, unclear
 from app.graph.state import CallState
 from app.speech.intent import has_any
 
-MENU_FIRST = "You can say: my status, or file a complaint about my record. Or say officer for a call back."
+MENU_FIRST = (
+    "You can say: my status, or file a complaint about my record. Or say officer for a call back."
+)
 MENU_AGAIN = "Is there anything else? You can say my status, file a complaint, or goodbye."
 MIN_COMPLAINT_CHARS = 10
 
@@ -47,7 +49,11 @@ async def _status(call: CallState) -> Step:
     return Step(say=[" ".join(parts)], goto="fac_menu")
 
 
-@node("fac_gv_desc", "Please describe the problem with your record in a sentence or two.", open_ended=True)
+@node(
+    "fac_gv_desc",
+    "Please describe the problem with your record in a sentence or two.",
+    open_ended=True,
+)
 async def fac_gv_desc(call: CallState, inp: Input) -> Step:
     if len(inp.text.strip()) < MIN_COMPLAINT_CHARS:
         return Step(say=["Please give a little more detail."], stay=True)

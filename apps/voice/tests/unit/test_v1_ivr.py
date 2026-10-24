@@ -116,13 +116,23 @@ def test_core_down_degrades_to_public_not_dropped_call():
 
 
 def test_status_and_recording_callbacks_return_204(client):
-    assert _post(client, "/voice/status", CallStatus="completed", CallDuration="42").status_code == 204
-    assert _post(client, "/voice/recording", RecordingUrl="https://api.twilio.com/r/1").status_code == 204
+    assert (
+        _post(client, "/voice/status", CallStatus="completed", CallDuration="42").status_code == 204
+    )
+    assert (
+        _post(client, "/voice/recording", RecordingUrl="https://api.twilio.com/r/1").status_code
+        == 204
+    )
 
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("9876543210", "+919876543210"), ("919876543210", "+919876543210"), ("", ""), ("12345", "+12345")],
+    [
+        ("9876543210", "+919876543210"),
+        ("919876543210", "+919876543210"),
+        ("", ""),
+        ("12345", "+12345"),
+    ],
 )
 def test_normalize_msisdn(raw, expected):
     assert ivr.normalize_msisdn(raw) == expected

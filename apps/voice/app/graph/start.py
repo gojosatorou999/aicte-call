@@ -49,7 +49,12 @@ async def start_call(
             ),
         )
         if not await call.verifier.begin():  # could not send the one-time code
-            return render(call, Step(say=[*say, MSG_TECHNICAL], end=True), settings, recording_callback=recording_callback)
+            return render(
+                call,
+                Step(say=[*say, MSG_TECHNICAL], end=True),
+                settings,
+                recording_callback=recording_callback,
+            )
         first = "verify_pin" if kind == Verification.PIN else "verify_otp"
     elif job is not None:
         first = "out_open"

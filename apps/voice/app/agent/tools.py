@@ -182,4 +182,3 @@ def _fill(template: str, args: dict[str, Any]) -> str:
 
 def _query(args: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in args.items() if v is not None}
-

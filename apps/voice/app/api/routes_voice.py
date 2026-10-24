@@ -223,6 +223,9 @@ async def recording(request: Request, form: Form = Depends(require_twilio_signat
     await _relay_to_core(
         request,
         call_sid,
-        {"recording_url": form.get("RecordingUrl", ""), "recording_sid": form.get("RecordingSid", "")},
+        {
+            "recording_url": form.get("RecordingUrl", ""),
+            "recording_sid": form.get("RecordingSid", ""),
+        },
     )
     return Response(status_code=204)

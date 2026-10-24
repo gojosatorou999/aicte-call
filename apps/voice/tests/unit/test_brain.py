@@ -179,7 +179,12 @@ def test_system_prompt_has_persona_language_and_date():
 
 @pytest.mark.parametrize(
     "utterance",
-    ["approve my application", "Please reject the application", "meri application approve kar do", "मेरा आवेदन मंजूर कर दो"],
+    [
+        "approve my application",
+        "Please reject the application",
+        "meri application approve kar do",
+        "मेरा आवेदन मंजूर कर दो",
+    ],
 )
 def test_wants_decision_positive(utterance):
     assert guardrails.wants_decision(utterance)
@@ -199,7 +204,10 @@ def test_abuse_detection():
 
 
 def test_openai_tool_schema_respects_optional_and_enum():
-    tools = {t["function"]["name"]: t["function"]["parameters"] for t in openai_tools(Persona.INSTITUTION)}
+    tools = {
+        t["function"]["name"]: t["function"]["parameters"]
+        for t in openai_tools(Persona.INSTITUTION)
+    }
     assert "record_commitment" in tools and "verify_officer_pin" not in tools
     chan = tools["send_upload_link"]["properties"]["channel"]
     assert chan["enum"] == ["WHATSAPP", "SMS", "EMAIL"]

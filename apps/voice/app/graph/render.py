@@ -66,7 +66,9 @@ def render(
         "method": "POST",
         "timeout": max(1, round(settings.no_input_timeout_ms / 1000)),
         "language": _ENGLISH.bcp47,
-        "speech_timeout": settings.gather_open_speech_timeout_sec if target.open_ended and settings.gather_open_speech_timeout_sec else "auto",
+        "speech_timeout": settings.gather_open_speech_timeout_sec
+        if target.open_ended and settings.gather_open_speech_timeout_sec
+        else "auto",
     }
     if target.num_digits:
         options["num_digits"] = target.num_digits

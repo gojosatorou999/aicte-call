@@ -21,7 +21,11 @@ def test_public_asks_if_institution_is_approved_using_mock_tools(lang, persona):
     try:
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(setup_msg(persona=persona, language=lang))
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "Is Sri Venkateswara approved?", "last": True}))
+            ws.send_text(
+                json.dumps(
+                    {"type": "prompt", "voicePrompt": "Is Sri Venkateswara approved?", "last": True}
+                )
+            )
             assert reply_text(ws) == "Yes, it is approved for B.Tech CSE with 120 seats."
         tool_results = [m["content"] for m in llm.calls[2] if m["role"] == "tool"]
         assert "inst-001" in tool_results[0] and "B.Tech CSE" in tool_results[1]
@@ -37,7 +41,9 @@ def test_partial_prompts_are_ignored():
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(setup_msg())
             ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "is sri", "last": False}))
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "is sri venkat", "last": True}))
+            ws.send_text(
+                json.dumps({"type": "prompt", "voicePrompt": "is sri venkat", "last": True})
+            )
             reply_text(ws)
         assert len(llm.calls) == 1 and llm.calls[0][-1]["content"] == "is sri venkat"
     finally:
@@ -50,11 +56,27 @@ def test_barge_in_stops_old_reply_and_trims_memory():
     try:
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(setup_msg())
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "tell me about approvals", "last": True}))
+            ws.send_text(
+                json.dumps(
+                    {"type": "prompt", "voicePrompt": "tell me about approvals", "last": True}
+                )
+            )
             first = recv(ws)
             assert first["token"].strip() == "Sentence one."
-            ws.send_text(json.dumps({"type": "interrupt", "utteranceUntilInterrupt": "Sentence", "durationUntilInterruptMs": 400}))
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "wait, another question", "last": True}))
+            ws.send_text(
+                json.dumps(
+                    {
+                        "type": "interrupt",
+                        "utteranceUntilInterrupt": "Sentence",
+                        "durationUntilInterruptMs": 400,
+                    }
+                )
+            )
+            ws.send_text(
+                json.dumps(
+                    {"type": "prompt", "voicePrompt": "wait, another question", "last": True}
+                )
+            )
             assert reply_text(ws) == "Sure, go ahead."
         history = llm.calls[1][1:]
         assert history[1] == {"role": "assistant", "content": "Sentence"}
@@ -80,7 +102,13 @@ def test_call_sid_mismatch_is_rejected():
     try:
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(
-                json.dumps({"type": "setup", "callSid": "CA-OTHER", "customParameters": {"session": token()}})
+                json.dumps(
+                    {
+                        "type": "setup",
+                        "callSid": "CA-OTHER",
+                        "customParameters": {"session": token()},
+                    }
+                )
             )
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
@@ -118,9 +146,13 @@ def test_abuse_one_warning_then_end():
     try:
         with client.websocket_connect("/voice/relay") as ws:
             ws.send_text(setup_msg())
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "you stupid bot", "last": True}))
+            ws.send_text(
+                json.dumps({"type": "prompt", "voicePrompt": "you stupid bot", "last": True})
+            )
             assert "respectful" in reply_text(ws)
-            ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "stupid idiot", "last": True}))
+            ws.send_text(
+                json.dumps({"type": "prompt", "voicePrompt": "stupid idiot", "last": True})
+            )
             assert "ending this call" in reply_text(ws)
             assert recv(ws) == {"type": "end"}
         assert llm.calls == []  # abusive input never reaches the model

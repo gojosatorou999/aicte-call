@@ -119,7 +119,9 @@ class CoreClient:
     async def ping(self) -> bool:
         """Reachability probe for /health. Any HTTP response counts as up."""
         try:
-            await self._http.get("/callers/lookup", params={"phone": ""}, headers=self._headers(None))
+            await self._http.get(
+                "/callers/lookup", params={"phone": ""}, headers=self._headers(None)
+            )
         except httpx.HTTPError:
             return False
         return True

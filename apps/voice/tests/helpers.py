@@ -100,7 +100,9 @@ class FakeLLM:
 
 
 class FakeRunner:
-    def __init__(self, results: dict[str, Any] | None = None, allowed: set[str] | None = None) -> None:
+    def __init__(
+        self, results: dict[str, Any] | None = None, allowed: set[str] | None = None
+    ) -> None:
         self.results = results or {}
         self.allowed = allowed
         self.called: list[tuple[str, dict[str, Any]]] = []
@@ -157,7 +159,11 @@ def setup_msg(**kw) -> str:
 
     tok = kw.pop("tok", None) or token(**kw)
     return json.dumps(
-        {"type": "setup", "callSid": kw.get("call_sid", "CA1"), "customParameters": {"session": tok}}
+        {
+            "type": "setup",
+            "callSid": kw.get("call_sid", "CA1"),
+            "customParameters": {"session": tok},
+        }
     )
 
 

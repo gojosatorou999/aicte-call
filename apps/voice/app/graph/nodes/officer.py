@@ -88,7 +88,9 @@ async def _region_stats(call: CallState) -> Step:
 async def off_overdue_kind(call: CallState, inp: Input) -> Step:
     kind = _kind_in(inp.text)
     if kind is None:
-        return await unclear(call, "off_overdue_kind", summary="Overdue category was not understood.")
+        return await unclear(
+            call, "off_overdue_kind", summary="Overdue category was not understood."
+        )
     return await _list_overdue(call, kind)
 
 
@@ -137,14 +139,19 @@ async def _send_report(call: CallState, report: str) -> Step:
     if not res.ok:
         return await tool_failed(call, res)
     call.slots["served"] = True
-    return Step(say=[f"I have emailed the {report} report to your registered address."], goto="off_menu")
+    return Step(
+        say=[f"I have emailed the {report} report to your registered address."], goto="off_menu"
+    )
 
 
 # -- reminder (always confirmed) ---------------------------------------------------------------------
 async def _start_reminder(call: CallState) -> Step:
     items = call.slots.get("last_overdue") or []
     if not items:
-        return Step(say=["Ask for an overdue list first, then I can send a reminder for its first item."], goto="off_menu")
+        return Step(
+            say=["Ask for an overdue list first, then I can send a reminder for its first item."],
+            goto="off_menu",
+        )
     call.slots["remind_ref"] = str(items[0].get("subject_ref", ""))
     return Step(goto="off_remind_confirm")
 
@@ -164,11 +171,12 @@ async def off_remind_confirm(call: CallState, inp: Input) -> Step:
     if not is_affirmative(inp.any) and inp.digits != "1":
         return await unclear(call, "off_remind_confirm", summary="Reminder was not confirmed.")
     res = await call.tool(
-        "trigger_reminder", {"subject_ref": call.slots["remind_ref"], "confirmed": True}, confirmed=True
+        "trigger_reminder",
+        {"subject_ref": call.slots["remind_ref"], "confirmed": True},
+        confirmed=True,
     )
     if not res.ok:
         return await tool_failed(call, res)
     call.clear("remind_ref", "off_remind_confirm")
     call.slots["served"] = True
     return Step(say=["The reminder has been sent."], goto="off_menu")
-
