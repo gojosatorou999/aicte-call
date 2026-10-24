@@ -61,3 +61,43 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   (`utteranceUntilInterrupt`). Half-finished tool exchanges are dropped so the history stays valid.
 - **Profanity filter off** in the relay (`profanityFilter=false`) so our own abuse detection sees
   the real words; one warning, then the call ends.
+
+## English only (user request, during V3)
+
+- **Only English is offered on calls.** `ENABLED_LANGUAGES` defaults to `en`: no language menu, the
+  greeting is English, and any other language code (caller preference from core, a key press, a URL
+  parameter) is clamped to English at the single choke point `_connect`. The other five languages'
+  code (phrases, date lexicons, voices) is kept but dormant; set
+  `ENABLED_LANGUAGES=en,hi,te,ml,ta,kn` to bring the menu back. The test suite enables all six so
+  that code stays exercised.
+
+## V3 - personas and tools
+
+- **PIN and OTP are keypad-only and never reach the model.** After the session starts, an
+  unverified officer (PIN) or faculty member (OTP, sent automatically) is asked to key the code in;
+  the relay collects `dtmf` digits, calls core, and only then lets the brain run. Spoken attempts
+  get "please use the keypad", are not stored and not sent to the model. `verify_officer_pin`,
+  `send_otp`, `check_otp` are hidden from the model entirely. Three wrong tries end the call.
+- **`policy.py` enforces what the prompt asks.** Until verified, officers/faculty see only
+  `search_aph`/`handoff_to_officer`. A typed-number ("press 9") institution session is limited the
+  same way, because the contract gives institutions no OTP tool. Track P could add INSTITUTION to
+  the `send_otp`/`check_otp` personas to lift that limit.
+- **Confirm-first for irreversible tools** (`record_commitment`, `log_extension_request`,
+  `trigger_reminder`, `create_grievance`): the first call returns `needs_confirmation` without
+  touching core; the identical call is let through only after a later caller utterance that is an
+  explicit yes (`speech/intent.py`). The model's own `confirmed=true` is ignored.
+- **Commitment dates are checked in code:** parsed (ISO, or the caller's words via the date parser),
+  not in the past, at most `COMMITMENT_MAX_DAYS` (30) ahead. Beyond that the tool answers
+  `date_beyond_policy` with the latest allowed date, and extensions can only be *requested*.
+- **Local `resolve_date` tool** (institution persona only) wraps the deterministic date parser so the
+  model does not do date arithmetic. Weekday rules: bare weekday = next one strictly after today;
+  `this` allows today; `next` = that weekday in the following Mon-Sun week. The date is always read
+  back to the caller before it is saved.
+- **Identity-bound parameters are injected**, not chosen by the model: `faculty_id` comes from the
+  session (`subject_id` claim, from the caller lookup).
+- **Public limits:** `PUBLIC_LOOKUPS_PER_CALL` registry lookups per call; `PUBLIC_CALLS_PER_DAY`
+  calls per number per day, in memory per process (Redis needed for several workers, V7).
+- **Tool outages:** a core error or outage comes back to the model with a hint to apologise and
+  offer a callback; three outages in a row end the call with a "technical problem" message.
+- **Outbound context** is built by `agent/personas.py` (`OutboundJob`, one script per call
+  purpose) and read from `app.state.jobs`, which the V4 dialer will fill.

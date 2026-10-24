@@ -51,6 +51,20 @@ def get_language(code: str | None) -> Language:
     return LANGUAGES.get((code or "").lower()[:2], LANGUAGES[DEFAULT_LANGUAGE])
 
 
+def enabled(settings: Settings | None = None) -> list[Language]:
+    """Languages callers may use, in configured order (unknown codes ignored)."""
+    codes = (settings or get_settings()).enabled_language_codes
+    found = [LANGUAGES[c] for c in codes if c in LANGUAGES]
+    return found or [LANGUAGES[DEFAULT_LANGUAGE]]
+
+
+def pick(code: str | None, settings: Settings | None = None) -> Language:
+    """`code` if it is enabled, else the first enabled language."""
+    allowed = enabled(settings)
+    wanted = get_language(code)
+    return wanted if wanted in allowed else allowed[0]
+
+
 def from_digit(digit: str | None) -> Language | None:
     return _BY_DIGIT.get((digit or "").strip())
 

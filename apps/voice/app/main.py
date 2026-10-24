@@ -14,6 +14,7 @@ from app.api import routes_health, routes_voice
 from app.config import get_settings
 from app.core_client import CoreClient
 from app.obs import configure_logging, get_logger
+from app.ratelimit import DailyLimiter
 
 
 @asynccontextmanager
@@ -25,6 +26,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     core = CoreClient(settings)
     llm = OpenAIChat(settings) if settings.llm_enabled else None
     app.state.core, app.state.llm = core, llm
+    app.state.limiter = DailyLimiter(settings.public_calls_per_day)
+    app.state.jobs = {}  # job_id -> OutboundJob; filled by the dialer (V4)
     get_logger(__name__).info(
         "voice_started", tools=len(tools), env=settings.app_env.value, llm=settings.llm_enabled
     )

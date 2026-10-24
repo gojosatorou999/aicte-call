@@ -36,6 +36,8 @@ def lookup(phone: str) -> dict[str, Any]:
         return {"kind": "INSTITUTION", "institution_id": INSTITUTION["id"], "contact_name": "Ramesh Kumar", "preferred_language": "te"}
     if phone.endswith("0002"):
         return {"kind": "OFFICER", "officer_id": "off-001", "preferred_language": "en"}
+    if phone.endswith("0003"):
+        return {"kind": "FACULTY", "faculty_id": "fac-001", "preferred_language": "kn"}
     return {"kind": "UNKNOWN"}
 
 
@@ -100,3 +102,70 @@ def call_status(call_id: str, body: dict[str, Any]) -> dict[str, Any]:
 @app.post(f"{P}/calls/{{call_id}}/outcome")
 def call_outcome(call_id: str, body: dict[str, Any]) -> dict[str, Any]:
     return {"call_id": call_id, "ok": True}
+
+
+# -- officer / faculty / shared endpoints (V3) --------------------------------
+VALID_PIN = "246810"
+VALID_OTP = "123456"  # DEMO_FIXED_OTP
+
+
+@app.post(f"{P}/officers/verify-pin")
+def verify_pin(body: dict[str, Any]) -> dict[str, Any]:
+    return {"verified": body.get("pin") == VALID_PIN}
+
+
+@app.post(f"{P}/otp/send")
+def otp_send() -> dict[str, Any]:
+    return {"sent": True}
+
+
+@app.post(f"{P}/otp/check")
+def otp_check(body: dict[str, Any]) -> dict[str, Any]:
+    return {"verified": body.get("code") == VALID_OTP}
+
+
+@app.get(f"{P}/officers/me/queue-summary")
+def queue_summary() -> dict[str, Any]:
+    return {"pending": 14, "overdue": 3, "due_this_week": 5}
+
+
+@app.get(f"{P}/stats/region")
+def region_stats(region_code: str | None = None) -> dict[str, Any]:
+    return {"region_code": region_code or "SR", "applications_in_progress": 120, "overdue": 9}
+
+
+@app.get(f"{P}/overdue")
+def overdue(kind: str = "STAGE", limit: int = 5) -> dict[str, Any]:
+    items = [{"subject_ref": f"APP-2026-{400 + i:04d}", "kind": kind, "days_overdue": 3 + i} for i in range(limit)]
+    return {"count": 3, "items": items[:3]}
+
+
+@app.post(f"{P}/reports/email")
+def email_report(body: dict[str, Any]) -> dict[str, Any]:
+    return {"queued": True, **body}
+
+
+@app.post(f"{P}/reminders")
+def reminder(body: dict[str, Any]) -> dict[str, Any]:
+    return {"sent": bool(body.get("confirmed")), "subject_ref": body.get("subject_ref")}
+
+
+@app.post(f"{P}/aph/search")
+def aph_search(body: dict[str, Any]) -> dict[str, Any]:
+    return {"results": [{"section": "4.2", "text": "Land documents must be valid for at least 30 years."}]}
+
+
+@app.post(f"{P}/upload-links")
+def upload_link(body: dict[str, Any]) -> dict[str, Any]:
+    return {"sent": True, "channel": body.get("channel")}
+
+
+@app.get(f"{P}/faculty/{{faculty_id}}")
+def faculty(faculty_id: str) -> dict[str, Any]:
+    return {
+        "faculty_id": faculty_id,
+        "registration_status": "ACTIVE",
+        "institutions": ["Sri Venkateswara Institute of Technology"],
+        "duplicate_flag": True,
+        "resolution_steps": "Upload a no-objection letter from the previous institution.",
+    }

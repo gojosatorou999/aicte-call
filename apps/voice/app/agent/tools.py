@@ -105,14 +105,25 @@ def _json_type(spec: str) -> dict[str, Any]:
     }.get(spec, {"type": "string"})
 
 
-def openai_tools(persona: Persona) -> list[dict[str, Any]]:
-    """Function-calling schemas for the persona's allowlist. A trailing `?`
-    in the contract marks an optional parameter."""
+def openai_tools(
+    persona: Persona,
+    *,
+    only: set[str] | frozenset[str] | None = None,
+    hide: dict[str, set[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Function-calling schemas for the persona's allowlist, optionally
+    narrowed to `only` and with identity-bound parameters (`hide`) left out so
+    the model cannot choose them. A trailing `?` in the contract marks an
+    optional parameter."""
     out: list[dict[str, Any]] = []
     for spec in tools_for(persona):
+        if only is not None and spec.name not in only:
+            continue
         props: dict[str, Any] = {}
         required: list[str] = []
         for pname, ptype in spec.params.items():
+            if pname in (hide or {}).get(spec.name, ()):
+                continue
             props[pname] = _json_type(ptype.rstrip("?"))
             if not ptype.endswith("?"):
                 required.append(pname)

@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     call_holidays: str = ""
     # Calling days, Python weekday numbers (Mon=0). app.md: Mon-Sat.
     call_days: str = "0,1,2,3,4,5"
+    # Languages offered on calls, comma-separated short codes. English only by default;
+    # set ENABLED_LANGUAGES=en,hi,te,ml,ta,kn to bring back the six-language menu.
+    enabled_languages: str = "en"
     sarvam_api_key: SecretStr = SecretStr("")  # accepted for env parity; unused (see DECISIONS.md)
 
     # -- Conversation -----------------------------------------------------
@@ -193,6 +196,11 @@ class Settings(BaseSettings):
     def speech_model_overrides(self) -> dict[str, str]:
         raw = self.gather_speech_models_json
         return json.loads(raw) if raw.strip() else {}
+
+    @property
+    def enabled_language_codes(self) -> list[str]:
+        codes = [c.strip().lower() for c in self.enabled_languages.split(",") if c.strip()]
+        return codes or ["en"]
 
     @property
     def holiday_dates(self) -> frozenset[str]:

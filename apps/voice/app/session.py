@@ -46,6 +46,7 @@ class SessionClaims:
     caller_ref: str  # HMAC of the msisdn, never the number itself
     job_id: str | None = None
     identity_source: IdentitySource = IdentitySource.ANONYMOUS
+    subject_id: str | None = None  # institution_id / officer_id / faculty_id from the caller lookup
 
 
 def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str:
@@ -60,6 +61,8 @@ def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str
         "iat": iat,
         "exp": iat + s.session_jwt_ttl_sec,
     }
+    if claims.subject_id:
+        payload["subject_id"] = claims.subject_id
     if claims.job_id:
         payload["job_id"] = claims.job_id
     return jwt.encode(payload, s.jwt_secret, algorithm=_ALG)
@@ -85,4 +88,5 @@ def verify_session(token: str, settings: Settings | None = None) -> SessionClaim
         caller_ref=data["caller_ref"],
         job_id=data.get("job_id"),
         identity_source=IdentitySource(data.get("identity_source", IdentitySource.ANONYMOUS)),
+        subject_id=data.get("subject_id"),
     )

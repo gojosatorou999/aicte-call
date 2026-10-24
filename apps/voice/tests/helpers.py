@@ -13,9 +13,24 @@ from app.session import IdentitySource, Persona, SessionClaims, mint_session
 from mock_core.app import app as mock_core_app
 
 
-def mock_core_client() -> CoreClient:
+class RecordingTransport(httpx.AsyncBaseTransport):
+    """Forwards to the in-process mock core and remembers every request."""
+
+    def __init__(self) -> None:
+        self._inner = httpx.ASGITransport(app=mock_core_app)
+        self.requests: list[httpx.Request] = []
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return await self._inner.handle_async_request(request)
+
+    def calls(self, method: str, path_suffix: str) -> list[httpx.Request]:
+        return [r for r in self.requests if r.method == method and r.url.path.endswith(path_suffix)]
+
+
+def mock_core_client(transport: RecordingTransport | None = None) -> CoreClient:
     """A CoreClient wired straight into the in-process mock core."""
-    return CoreClient(transport=httpx.ASGITransport(app=mock_core_app))
+    return CoreClient(transport=transport or httpx.ASGITransport(app=mock_core_app))
 
 
 def token(
@@ -23,8 +38,20 @@ def token(
     persona: Persona = Persona.PUBLIC,
     language: str = "en",
     source: IdentitySource = IdentitySource.ANONYMOUS,
+    subject_id: str | None = None,
+    job_id: str | None = None,
 ) -> str:
-    return mint_session(SessionClaims(call_sid, persona, language, "ref", identity_source=source))
+    return mint_session(
+        SessionClaims(
+            call_sid,
+            persona,
+            language,
+            "ref",
+            job_id=job_id,
+            identity_source=source,
+            subject_id=subject_id,
+        )
+    )
 
 
 def text(*parts: str) -> list[LLMEvent]:
@@ -46,11 +73,13 @@ class FakeLLM:
     def __init__(self, *scripts: list[Any]) -> None:
         self._scripts = list(scripts)
         self.calls: list[list[dict[str, Any]]] = []
+        self.tool_names: list[list[str]] = []  # tools offered on each call
 
     async def stream(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
     ) -> AsyncIterator[LLMEvent]:
         self.calls.append([dict(m) for m in messages])
+        self.tool_names.append([t["function"]["name"] for t in tools])
         script = self._scripts.pop(0)
         for event in script:
             if isinstance(event, Hang):
@@ -70,6 +99,12 @@ class FakeRunner:
     def allows(self, name: str) -> bool:
         return self.allowed is None or name in self.allowed
 
+    def schemas(self) -> list[dict[str, Any]]:
+        return []
+
+    def note_user(self, text: str) -> None:
+        pass
+
     async def run(self, name: str, args: dict[str, Any]) -> Any:
         from app.agent.tools import ToolNotAllowed
 
@@ -86,3 +121,62 @@ def relay_session_param(twiml_xml: str) -> str:
         if p.get("name") == "session":
             return p.get("value") or ""
     raise AssertionError("no session parameter in TwiML")
+
+
+# -- relay test harness ----------------------------------------------------------------
+def open_relay(llm, *, transport=None, jobs=None, **settings_overrides):
+    """Start the app, swap in a scripted LLM and the in-process mock core."""
+    from fastapi.testclient import TestClient
+
+    from app.config import get_settings
+    from app.main import create_app
+
+    settings = get_settings()
+    for k, v in settings_overrides.items():
+        setattr(settings, k, v)
+    client = TestClient(create_app())
+    client.__enter__()
+    client.app.state.core = mock_core_client(transport)
+    client.app.state.llm = llm
+    if jobs:
+        client.app.state.jobs.update(jobs)
+    return client
+
+
+def setup_msg(**kw) -> str:
+    import json
+
+    tok = kw.pop("tok", None) or token(**kw)
+    return json.dumps(
+        {"type": "setup", "callSid": kw.get("call_sid", "CA1"), "customParameters": {"session": tok}}
+    )
+
+
+def recv(ws) -> dict:
+    import json
+
+    return json.loads(ws.receive_text())
+
+
+def reply_text(ws) -> str:
+    """Collect text tokens up to and including the `last: true` marker."""
+    out = []
+    while True:
+        m = recv(ws)
+        assert m["type"] == "text", m
+        out.append(m["token"])
+        if m["last"]:
+            return "".join(out).strip()
+
+
+def say(ws, text: str) -> None:
+    import json
+
+    ws.send_text(json.dumps({"type": "prompt", "voicePrompt": text, "last": True}))
+
+
+def press(ws, digits: str) -> None:
+    import json
+
+    for d in digits:
+        ws.send_text(json.dumps({"type": "dtmf", "digit": d}))

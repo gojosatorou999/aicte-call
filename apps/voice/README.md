@@ -40,3 +40,14 @@ ruff check .
 | `app/core_client.py` | bearer + session-header client for core, circuit breaker |
 | `app/agent/tools.py` | tool allowlist from `packages/contracts/voice-tools.json` and routes to core |
 | `mock_core/` | hand-written mock of core `/internal/voice/*` |
+
+## Languages
+
+Calls are English only by default. To bring back the six-language menu set
+`ENABLED_LANGUAGES=en,hi,te,ml,ta,kn` (Indian-language speech quality is unverified; see
+`docs/DECISIONS.md`).
+
+## Officer / faculty verification
+
+Officers enter a six digit voice PIN, and faculty a one-time code, on the phone keypad; the code is
+never spoken to or seen by the model. In the mock core the PIN is `246810` and the OTP `123456`.

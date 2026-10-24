@@ -11,7 +11,7 @@ from app.api.twilio_auth import require_twilio_signature
 from app.config import get_settings
 from app.core_client import CoreClient, CoreError
 from app.obs import get_logger
-from app.session import SessionClaims, mint_session
+from app.session import Persona, SessionClaims, mint_session
 from app.speech import languages as langs
 from app.speech.phrases import phrase
 from app.utils.drain import is_draining
@@ -46,17 +46,27 @@ async def _connect(
 ) -> Response:
     """Mint the session, register the call with core, hand over to the relay."""
     settings = get_settings()
-    lang = langs.get_language(lang_code)
+    lang = langs.pick(lang_code)  # a disabled language can never reach a session
     call_sid = form.get("CallSid", "")
     # Caller ID is always the line the call came from, even when the persona
     # was established by an entered number.
     from_number = form.get("From", "")
+    caller_ref = hash_msisdn(from_number, settings.caller_hash_pepper.get_secret_value())
+    # Anonymous public callers: bounded calls per number per day (app.md 12.3).
+    if (
+        caller.persona == Persona.PUBLIC
+        and from_number
+        and not request.app.state.limiter.allow(caller_ref)
+    ):
+        log.info("public_daily_limit", call_sid=call_sid)
+        return _xml(twiml.say_and_hangup(phrase("daily_limit", lang.code), lang))
     claims = SessionClaims(
         call_sid=call_sid,
         persona=caller.persona,
         language=lang.code,
-        caller_ref=hash_msisdn(from_number, settings.caller_hash_pepper.get_secret_value()),
+        caller_ref=caller_ref,
         identity_source=ivr.identity_source(caller, entered=entered),
+        subject_id=caller.subject_id,
     )
     token = mint_session(claims)
     try:
@@ -95,7 +105,7 @@ async def inbound(request: Request, form: Form = Depends(require_twilio_signatur
     if is_draining():
         return _xml(twiml.unavailable())
     caller = await ivr.lookup_caller(_core(request), form.get("From", ""))
-    default = langs.get_language(caller.preferred_language).code
+    default = langs.pick(caller.preferred_language).code
     return _xml(twiml.language_menu(_url("/voice/language", d=default)))
 
 
@@ -107,7 +117,9 @@ async def language(
     form: Form = Depends(require_twilio_signature),
 ) -> Response:
     chosen = langs.from_digit(form.get("Digits")) or langs.from_speech(form.get("SpeechResult"))
-    lang = chosen or langs.get_language(d)
+    if chosen is not None and chosen not in langs.enabled():
+        chosen = None
+    lang = chosen or langs.pick(d)
     if chosen is None:
         log.info("language_defaulted", language=lang.code, noinput=bool(noinput))
 

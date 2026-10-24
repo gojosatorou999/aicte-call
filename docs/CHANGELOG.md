@@ -30,3 +30,15 @@
 - Tests: 62 total (unit + WebSocket integration with a scripted LLM and the mock core). Lint clean.
 - **Not verified against real services:** no real LLM, Twilio call, or Indian-language STT/TTS
   was exercised. The "is <institution> approved" flow is tested end to end only with a scripted LLM.
+
+## V3 - Personas and tools
+
+- Keypad PIN/OTP verification (`agent/verification.py`), session policy and gated tool runner
+  (`agent/policy.py`): tool visibility by verification state, confirm-first for irreversible tools,
+  commitment date policy, public lookup limit, injected faculty id.
+- Spoken-date parser (`speech/dates.py`) and local `resolve_date` tool; multilingual yes/no
+  (`speech/intent.py`); per-purpose outbound scripts (`agent/personas.py`); public daily call limit
+  (`ratelimit.py`); tool-outage handling and `add_context` in the brain.
+- Mock core: officer, faculty, OTP, reminder, report, upload-link and APH endpoints.
+- **English only by default** (`ENABLED_LANGUAGES=en`); other languages dormant but tested.
+- Tests: 186 total, including scripted calls for voice test-matrix rows 1-9 (row 10, voicemail, is V4).

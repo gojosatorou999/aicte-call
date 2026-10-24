@@ -14,9 +14,10 @@ from typing import Any
 
 from app.agent import guardrails
 from app.agent.llm import ChatStream, TextDelta, ToolCallEvent
-from app.agent.tools import ToolNotAllowed, ToolRunner, openai_tools
+from app.agent.policy import GatedToolRunner
+from app.agent.tools import ToolNotAllowed
 from app.config import Settings, get_settings
-from app.core_client import CoreError
+from app.core_client import CoreError, CoreUnavailable
 from app.obs import get_logger
 from app.session import Persona
 from app.speech.phrases import phrase
@@ -26,7 +27,18 @@ log = get_logger(__name__)
 MAX_TOOL_ROUNDS = 4
 MAX_HISTORY_TURNS = 12
 MAX_TOOL_RESULT_CHARS = 4000
+MAX_CONSECUTIVE_TOOL_OUTAGES = 3
 _HANDOFF_TOOL = "handoff_to_officer"
+
+
+_OUTAGE_HINT = (
+    "The system is not responding. Apologise briefly, do not guess the answer, and offer to arrange "
+    "a callback from an officer with handoff_to_officer if you have it."
+)
+_REJECTED_HINT = (
+    "The request was refused. Do not retry unchanged. Explain simply that you could not do it and "
+    "offer an officer callback with handoff_to_officer if you have it."
+)
 
 
 class BrainError(Exception):
@@ -38,7 +50,7 @@ class Brain:
         self,
         *,
         llm: ChatStream,
-        runner: ToolRunner,
+        runner: GatedToolRunner,
         persona: Persona,
         language: str,
         settings: Settings | None = None,
@@ -49,8 +61,9 @@ class Brain:
         self._persona = persona
         self._language = language
         self._s = settings or get_settings()
+        self._extra_context = extra_context
         self._system = guardrails.build_system_prompt(persona, language, extra_context)
-        self._tools = openai_tools(persona)
+        self._outages = 0  # consecutive core outages seen by tool calls
         self._turns: list[list[dict[str, Any]]] = []  # committed history, one list per turn
         self.turn_count = 0
 
@@ -71,9 +84,17 @@ class Brain:
         if last.get("role") == "assistant" and not last.get("tool_calls"):
             last["content"] = spoken
 
+    def add_context(self, note: str) -> None:
+        """Extend the system prompt mid-call (e.g. "caller is now verified")."""
+        self._extra_context = f"{self._extra_context}\n{note}".strip()
+        self._system = guardrails.build_system_prompt(
+            self._persona, self._language, self._extra_context
+        )
+
     # -- turn ----------------------------------------------------------------
     async def respond(self, user_text: str) -> AsyncIterator[str]:
         self.turn_count += 1
+        self._runner.note_user(user_text)
         user_msg = {"role": "user", "content": user_text}
 
         if guardrails.wants_decision(user_text):
@@ -106,7 +127,7 @@ class Brain:
             calls: list[ToolCallEvent] = []
 
             try:
-                async for event in self._llm.stream(messages, self._tools):
+                async for event in self._llm.stream(messages, self._runner.schemas()):
                     if isinstance(event, TextDelta):
                         text_parts.append(event.text)
                         for sentence in chunker.feed(event.text):
@@ -173,11 +194,19 @@ class Brain:
             data = await self._runner.run(call.name, args)
         except ToolNotAllowed:
             raise
+        except CoreUnavailable as exc:
+            self._outages += 1
+            log.warning("tool_failed", tool=call.name, status=exc.status, outages=self._outages)
+            if self._outages >= MAX_CONSECUTIVE_TOOL_OUTAGES:
+                raise BrainError("core_unavailable") from exc
+            return json.dumps({"error": "core_unavailable", "hint": _OUTAGE_HINT})
         except CoreError as exc:
+            self._outages = 0
             log.warning("tool_failed", tool=call.name, status=exc.status, code=exc.code)
-            return json.dumps({"error": exc.code or "core_unavailable"})
+            return json.dumps({"error": exc.code or "request_rejected", "hint": _REJECTED_HINT})
         except (ValueError, TypeError):
             return json.dumps({"error": "invalid_arguments"})
+        self._outages = 0
         return json.dumps(data, ensure_ascii=False, default=str)[:MAX_TOOL_RESULT_CHARS]
 
     # -- refusals --------------------------------------------------------------

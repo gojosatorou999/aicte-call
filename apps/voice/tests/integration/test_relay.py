@@ -3,54 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app import relay_ws
-from app.config import get_settings
-from app.main import create_app
 from app.session import Persona
-from tests.helpers import FakeLLM, Hang, mock_core_client, text, token, tool
-
-
-@pytest.fixture(autouse=True)
-def _fast_speech(monkeypatch):
-    """Make the 'estimated speech time' waits negligible."""
-    monkeypatch.setattr(relay_ws, "SPEECH_CHARS_PER_SEC", 1e9)
-    monkeypatch.setattr(relay_ws, "END_PADDING_SEC", 0.0)
-
-
-def open_relay(llm, **settings_overrides):
-    settings = get_settings()
-    for k, v in settings_overrides.items():
-        setattr(settings, k, v)
-    client = TestClient(create_app())
-    client.__enter__()
-    client.app.state.core = mock_core_client()
-    client.app.state.llm = llm
-    return client
-
-
-def setup_msg(**kw):
-    tok = kw.pop("tok", None) or token(**kw)
-    return json.dumps(
-        {"type": "setup", "callSid": kw.get("call_sid", "CA1"), "customParameters": {"session": tok}}
-    )
-
-
-def recv(ws):
-    return json.loads(ws.receive_text())
-
-
-def reply_text(ws):
-    """Collect text tokens up to and including the `last: true` marker."""
-    out = []
-    while True:
-        m = recv(ws)
-        assert m["type"] == "text", m
-        out.append(m["token"])
-        if m["last"]:
-            return "".join(out).strip()
+from tests.helpers import FakeLLM, Hang, open_relay, recv, reply_text, setup_msg, text, token, tool
 
 
 @pytest.mark.parametrize(("lang", "persona"), [("en", Persona.PUBLIC), ("hi", Persona.PUBLIC)])

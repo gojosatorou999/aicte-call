@@ -25,6 +25,14 @@ class Caller:
     known: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def subject_id(self) -> str | None:
+        """The institution / officer / faculty id core resolved for this caller."""
+        for key in ("institution_id", "officer_id", "faculty_id"):
+            if value := self.raw.get(key):
+                return str(value)
+        return None
+
 
 ANONYMOUS = Caller(persona=Persona.PUBLIC)
 

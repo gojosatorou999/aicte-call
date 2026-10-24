@@ -25,7 +25,10 @@ from app import clock
 from app.agent import guardrails
 from app.agent.brain import Brain, BrainError
 from app.agent.llm import ChatStream
+from app.agent.personas import OutboundJob, outbound_context
+from app.agent.policy import GatedToolRunner, SessionPolicy, Verification
 from app.agent.tools import ToolRunner
+from app.agent.verification import Outcome, Verifier
 from app.config import Settings, get_settings
 from app.core_client import CoreClient
 from app.obs import get_logger
@@ -57,8 +60,11 @@ class RelaySession:
     core: CoreClient
     llm: ChatStream | None
     settings: Settings
+    jobs: dict[str, OutboundJob] = field(default_factory=dict)
     claims: SessionClaims | None = None
     brain: Brain | None = None
+    policy: SessionPolicy | None = None
+    verifier: Verifier | None = None
     transcript: list[TranscriptLine] = field(default_factory=list)
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _turn_task: asyncio.Task[None] | None = None
@@ -113,16 +119,45 @@ class RelaySession:
             log.error("llm_not_configured")
             await self._say(phrase("technical_problem", c.language), end=True)
             return True
+        token = token_of(msg)
+        self.policy = SessionPolicy(c, self.settings)
+        job = self.jobs.get(c.job_id) if c.job_id else None
         self.brain = Brain(
             llm=self.llm,
-            runner=ToolRunner(self.core, token_of(msg), c.persona),
+            runner=GatedToolRunner(ToolRunner(self.core, token, c.persona), self.policy),
             persona=c.persona,
             language=c.language,
             settings=self.settings,
+            extra_context=outbound_context(job) if job else "",
         )
         self._deadline_task = asyncio.create_task(self._enforce_deadline())
+
+        kind = self.policy.verification_needed()
+        if kind != Verification.NONE:
+            self.verifier = Verifier(
+                kind=kind,
+                core=self.core,
+                session_jwt=token,
+                max_attempts=(
+                    self.settings.pin_max_attempts
+                    if kind == Verification.PIN
+                    else self.settings.otp_max_attempts
+                ),
+            )
+            if not await self.verifier.begin():
+                self.verifier = None
+                await self._say(phrase("technical_problem", c.language), end=True)
+                return True
+            await self._say(self._verify_prompt())
+            self._arm_silence(len(self._verify_prompt()))
+            return True
         self._arm_silence(len(phrase("welcome", c.language)))
         return True
+
+    def _verify_prompt(self) -> str:
+        assert self.claims is not None and self.verifier is not None
+        key = "pin_prompt" if self.verifier.kind == Verification.PIN else "otp_prompt"
+        return phrase(key, self.claims.language)
 
     async def _cleanup(self) -> None:
         self._closing = True
@@ -144,17 +179,51 @@ class RelaySession:
         elif kind == "interrupt":
             await self._on_interrupt(str(msg.get("utteranceUntilInterrupt", "")))
         elif kind == "dtmf":
-            self._cancel_silence()
-            log.info("relay_dtmf")  # the digit itself may be a PIN/OTP digit: not logged
+            await self._on_dtmf(str(msg.get("digit", "")))
         elif kind == "error":
             log.error("relay_twilio_error", description=str(msg.get("description", ""))[:200])
         elif kind != "setup":
             log.warning("relay_unknown_message", type=str(kind)[:30])
 
+    async def _on_dtmf(self, digit: str) -> None:
+        self._cancel_silence()
+        self._reprompts = 0
+        if self.verifier is None:
+            log.info("relay_dtmf_ignored")  # a digit may belong to a PIN/OTP: never logged
+            return
+        assert self.claims is not None and self.brain is not None and self.policy is not None
+        lang = self.claims.language
+        outcome = await self.verifier.feed(digit)
+        if outcome == Outcome.NEED_MORE:
+            self._arm_silence(0)
+        elif outcome == Outcome.VERIFIED:
+            self.verifier = None
+            self.policy.mark_verified()
+            self.brain.add_context(
+                "The caller has just been verified by the system with their keypad code. Do not "
+                "ask for a PIN or code."
+            )
+            await self._say(phrase("verified_ok", lang))
+            self._arm_silence(self._last_reply_chars)
+        elif outcome == Outcome.FAILED:
+            await self._say(phrase("verify_failed", lang) + " " + self._verify_prompt())
+            self._arm_silence(self._last_reply_chars)
+        elif outcome == Outcome.LOCKED:
+            await self._say(phrase("verify_locked", lang), end=True)
+        else:  # core unavailable
+            await self._say(phrase("technical_problem", lang), end=True)
+
     async def _on_prompt(self, text: str) -> None:
         self._cancel_silence()
         self._reprompts = 0
         await self._cancel_turn()
+        if self.verifier is not None:
+            # Awaiting keypad entry: what the caller said is not used (it could be
+            # the PIN itself), not stored, and not sent to the model.
+            assert self.claims is not None
+            await self._say(phrase("use_keypad", self.claims.language) + " " + self._verify_prompt())
+            self._arm_silence(self._last_reply_chars)
+            return
         self._note("caller", text)
         self._turn_task = asyncio.create_task(self._turn(text))
 
@@ -253,7 +322,7 @@ class RelaySession:
             await self._say(phrase("goodbye_silence", lang), end=True)
             return
         self._reprompts += 1
-        text = phrase("reprompt", lang)
+        text = self._verify_prompt() if self.verifier is not None else phrase("reprompt", lang)
         await self._say(text)
         self._silence_task = asyncio.create_task(
             self._on_silence(len(text) / SPEECH_CHARS_PER_SEC + self.settings.no_input_timeout_ms / 1000)
@@ -294,6 +363,7 @@ async def relay(ws: WebSocket) -> None:
         core=app_state.core,
         llm=getattr(app_state, "llm", None),
         settings=get_settings(),
+        jobs=getattr(app_state, "jobs", {}),
     )
     try:
         await session.run()

@@ -133,7 +133,42 @@ async def test_core_error_in_tool_is_reported_to_model():
 
     llm = FakeLLM([tool("search_institutions", "{}")], [*text("I could not check.")])
     assert await collect(make_brain(llm, Boom()), "x") == ["I could not check."]
-    assert json.loads(llm.calls[1][-1]["content"]) == {"error": "core_unavailable"}
+    result = json.loads(llm.calls[1][-1]["content"])
+    assert result["error"] == "core_unavailable" and "handoff_to_officer" in result["hint"]
+
+
+async def test_three_consecutive_core_outages_end_the_conversation_gracefully():
+    from app.core_client import CoreUnavailable
+
+    class Boom(FakeRunner):
+        async def run(self, name, args):
+            raise CoreUnavailable("down")
+
+    llm = FakeLLM(*[[tool("search_institutions", "{}", f"c{i}")] for i in range(3)])
+    with pytest.raises(BrainError):
+        await collect(make_brain(llm, Boom()), "x")
+
+
+async def test_a_successful_tool_call_resets_the_outage_count():
+    from app.core_client import CoreUnavailable
+
+    class Flaky(FakeRunner):
+        n = 0
+
+        async def run(self, name, args):
+            Flaky.n += 1
+            if Flaky.n in (1, 2, 4, 5):
+                raise CoreUnavailable("blip")
+            return {}
+
+    llm = FakeLLM(
+        [tool("a", "{}", "1")], [tool("a", "{}", "2")], [tool("a", "{}", "3")],
+        [tool("a", "{}", "4")], [tool("a", "{}", "5")], [*text("Done.")],
+    )  # fmt: skip
+    # 2 failures, 1 success, 2 failures: never 3 in a row (the tool loop also caps rounds at 4,
+    # so the turn ends with the technical-problem phrase instead of raising)
+    out = await collect(make_brain(llm, Flaky()), "x")
+    assert out == ["I am having a technical problem right now. Please try again shortly. Goodbye."]
 
 
 def test_system_prompt_has_persona_language_and_date():

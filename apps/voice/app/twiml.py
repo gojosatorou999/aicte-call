@@ -20,15 +20,23 @@ def _say(node: VoiceResponse, text: str, lang: langs.Language) -> None:
 
 
 def language_menu(action: str) -> str:
-    """Bilingual greeting, then the six-language menu (DTMF or speech).
+    """Greeting, then the language menu (DTMF or speech) of the enabled languages.
+    With a single enabled language there is no menu: the greeting plays and the
+    call continues straight on in that language.
 
     The menu is spoken inside the <Gather> so the caller can barge in with a
     key press. If nothing is entered Twilio falls through to the <Redirect>
     (`noinput=1`); `action` carries the default language (`d=`) the route
     then falls back to: caller's preferred language, else English."""
+    enabled = langs.enabled()
+    default_redirect = f"{action}{'&' if '?' in action else '?'}noinput=1"
     vr = VoiceResponse()
     vr.say(GREETING_EN, language="en-IN")
-    vr.say(GREETING_HI, language="hi-IN")
+    if len(enabled) == 1:
+        vr.redirect(default_redirect, method="POST")
+        return str(vr)
+    if any(lang.code == "hi" for lang in enabled):
+        vr.say(GREETING_HI, language="hi-IN")
     gather = vr.gather(
         input="dtmf speech",
         num_digits=1,
@@ -39,9 +47,9 @@ def language_menu(action: str) -> str:
         hints=langs.menu_hints(),
         language="en-IN",
     )
-    for lang in langs.LANGUAGES.values():
+    for lang in enabled:
         _say(gather, phrase("language_menu", lang.code), lang)
-    vr.redirect(f"{action}{'&' if '?' in action else '?'}noinput=1", method="POST")
+    vr.redirect(default_redirect, method="POST")
     return str(vr)
 
 
@@ -112,6 +120,13 @@ def relay(
 def redirect(url: str) -> str:
     vr = VoiceResponse()
     vr.redirect(url, method="POST")
+    return str(vr)
+
+
+def say_and_hangup(text: str, lang: langs.Language) -> str:
+    vr = VoiceResponse()
+    _say(vr, text, lang)
+    vr.hangup()
     return str(vr)
 
 
