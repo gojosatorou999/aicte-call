@@ -134,17 +134,23 @@ def check_twilio(s: Settings, r: Report) -> None:
     else:
         have = [n.phone_number for n in client.incoming_phone_numbers.list(limit=20)]
         hint = (
-            f"this account's numbers end in: {', '.join(mask(n)[-4:] for n in have)} - set TWILIO_VOICE_NUMBER to one of them (full +E.164 form)"
+            f"this account's listed numbers end in: {', '.join(mask(n)[-4:] for n in have)}"
             if have
-            else "this account has no phone number yet: Console -> Phone Numbers -> Manage -> Buy a number (a trial gives one free)"
+            else "the API lists no numbers for this account"
         )
-        r.fail(f"{mask(s.twilio_voice_number)} is not a number on this Twilio account", hint)
+        r.warn(
+            f"{mask(s.twilio_voice_number)} is not in this account's number list ({hint})",
+            "Trial accounts can use a Twilio-managed number that the API does not list (the Console's "
+            "'Try out Voice' shows it as From). If it is the From number shown there, ignore this; "
+            "the first real call is the definitive test",
+        )
 
     if account.type == "Trial":
-        numbers = ", ".join(mask(v.phone_number) for v in verified_ids) or "none yet"
+        numbers = ", ".join(mask(v.phone_number) for v in verified_ids) or "none listed by the API"
         r.warn(
             f"Trial account: it can only call numbers you have verified ({numbers})",
-            "add the phone you will test with at Console -> Phone Numbers -> Verified Caller IDs",
+            "the phone you test with must appear as a destination in the Console's 'Try out Voice' "
+            "(or under Phone Numbers -> Verified Caller IDs)",
         )
 
 

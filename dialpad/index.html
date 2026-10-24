@@ -252,7 +252,7 @@
         if (r.ok) { show("info", r.data.message || "Calling you now…"); follow(r.data.call_sid); return; }
         show("err", r.data.detail || ("Something went wrong (" + r.status + ")."));
       } catch (err) {
-        show("err", "Could not reach the assistant. Please try again in a moment.");
+        show("err", "Could not reach the assistant. If you run it yourself, make sure the service and the ngrok tunnel are running (scripts\start_all.ps1), then try again.");
       }
       btn.disabled = false; btn.innerHTML = "&#9742;&#65039; Call me now";
     });
