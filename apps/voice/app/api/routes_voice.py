@@ -10,6 +10,7 @@ from app import ivr, twiml
 from app.api.twilio_auth import require_twilio_signature
 from app.config import get_settings
 from app.core_client import CoreClient, CoreError
+from app.graph.start import start_call
 from app.obs import get_logger
 from app.session import Persona, SessionClaims, mint_session
 from app.speech import languages as langs
@@ -86,7 +87,25 @@ async def _connect(
     except CoreError as exc:  # the call goes ahead; core just won't have a start record
         log.warning("call_register_failed", call_sid=call_sid, error=str(exc))
 
-    log.info("call_routed", call_sid=call_sid, persona=claims.persona.value, language=lang.code)
+    log.info(
+        "call_routed",
+        call_sid=call_sid,
+        persona=claims.persona.value,
+        language=lang.code,
+        mode=settings.conversation_mode,
+    )
+    if settings.conversation_mode != "relay":  # gather / hybrid: the deterministic graph leads
+        return _xml(
+            await start_call(
+                claims=claims,
+                token=token,
+                core=_core(request),
+                store=request.app.state.calls,
+                settings=settings,
+                job=request.app.state.jobs.get(claims.job_id) if claims.job_id else None,
+                recording_callback=_url("/voice/recording"),
+            )
+        )
     return _xml(
         twiml.relay(
             ws_url=_ws_url(),

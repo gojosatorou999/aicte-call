@@ -78,7 +78,7 @@ class SessionPolicy:
     def __init__(self, claims: SessionClaims, settings: Settings | None = None) -> None:
         self.claims = claims
         self._s = settings or get_settings()
-        self.verified = False
+        self.verified = claims.verified
         self._utterance_no = 0
         self._last_user = ""
         self._pending: dict[str, tuple[str, int]] = {}  # tool -> (fingerprint, utterance_no)
@@ -118,8 +118,13 @@ class SessionPolicy:
         self._last_user = text
 
     # -- per-call gate -----------------------------------------------------------
-    def prepare(self, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    def prepare(
+        self, name: str, args: dict[str, Any], *, skip_confirm: bool = False
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """Returns (args to send, short-circuit result or None).
+
+        `skip_confirm` is for the Gather graph, which does its own explicit
+        yes/no step before calling; every other rule still applies.
 
         A short-circuit result is handed to the model as the tool's output
         without calling core."""
@@ -139,19 +144,7 @@ class SessionPolicy:
         if name == "record_commitment":
             err = self._normalise_date(args, "committed_date", today)
             if err is None:
-                chosen = date.fromisoformat(args["committed_date"])
-                latest = today + timedelta(days=self._s.commitment_max_days)
-                if chosen < today:
-                    err = {"error": "date_in_past"}
-                elif chosen > latest:
-                    err = {
-                        "error": "date_beyond_policy",
-                        "max_date": latest.isoformat(),
-                        "hint": (
-                            "Explain that only the competent authority can grant extensions and "
-                            "offer to log an extension request for officer review."
-                        ),
-                    }
+                err = self.commitment_error(date.fromisoformat(args["committed_date"]))
             if err:
                 return args, err
         elif name == "log_extension_request":
@@ -175,12 +168,31 @@ class SessionPolicy:
             args["limit"] = max(1, min(limit, MAX_OVERDUE_LIST))
 
         if name in CONFIRM_FIRST:
-            held = self._confirm_first(name, args)
+            held = None if skip_confirm else self._confirm_first(name, args)
             if held is not None:
                 return args, held
             if name == "trigger_reminder":
                 args["confirmed"] = True
         return args, None
+
+    def commitment_error(self, chosen: date) -> dict[str, Any] | None:
+        """The one rule for "can this date be recorded as a commitment": not in the
+        past, and at most COMMITMENT_MAX_DAYS ahead (only the competent authority
+        grants extensions). Shared by the LLM tools and the Gather graph."""
+        today = clock.today()
+        latest = today + timedelta(days=self._s.commitment_max_days)
+        if chosen < today:
+            return {"error": "date_in_past"}
+        if chosen > latest:
+            return {
+                "error": "date_beyond_policy",
+                "max_date": latest.isoformat(),
+                "hint": (
+                    "Explain that only the competent authority can grant extensions and "
+                    "offer to log an extension request for officer review."
+                ),
+            }
+        return None
 
     # -- helpers -------------------------------------------------------------------
     def _confirm_first(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
@@ -265,13 +277,13 @@ class GatedToolRunner:
     def note_user(self, text: str) -> None:
         self.policy.note_user(text)
 
-    async def run(self, name: str, args: dict[str, Any]) -> Any:
+    async def run(self, name: str, args: dict[str, Any], *, skip_confirm: bool = False) -> Any:
         if not self.allows(name):
             log.warning("tool_blocked", tool=name, persona=self.policy.claims.persona.value)
             raise ToolNotAllowed(f"{name!r} is not available in this session")
         if name == LOCAL_RESOLVE_DATE:
             return self._resolve_date(str(args.get("phrase", "")))
-        send, short_circuit = self.policy.prepare(name, args)
+        send, short_circuit = self.policy.prepare(name, args, skip_confirm=skip_confirm)
         if short_circuit is not None:
             return short_circuit
         return await self._inner.run(name, send)

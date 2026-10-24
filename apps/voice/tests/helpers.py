@@ -19,9 +19,14 @@ class RecordingTransport(httpx.AsyncBaseTransport):
     def __init__(self) -> None:
         self._inner = httpx.ASGITransport(app=mock_core_app)
         self.requests: list[httpx.Request] = []
+        # path suffix -> JSON to return instead of asking the mock core
+        self.overrides: dict[str, Any] = {}
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        for suffix, payload in self.overrides.items():
+            if request.url.path.endswith(suffix):
+                return httpx.Response(200, json=payload)
         return await self._inner.handle_async_request(request)
 
     def calls(self, method: str, path_suffix: str) -> list[httpx.Request]:
@@ -40,6 +45,8 @@ def token(
     source: IdentitySource = IdentitySource.ANONYMOUS,
     subject_id: str | None = None,
     job_id: str | None = None,
+    verified: bool = False,
+    via_graph: bool = False,
 ) -> str:
     return mint_session(
         SessionClaims(
@@ -50,6 +57,8 @@ def token(
             job_id=job_id,
             identity_source=source,
             subject_id=subject_id,
+            verified=verified,
+            via_graph=via_graph,
         )
     )
 

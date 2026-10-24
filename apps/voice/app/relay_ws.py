@@ -33,6 +33,7 @@ from app.config import Settings, get_settings
 from app.core_client import CoreClient
 from app.obs import get_logger
 from app.session import Persona, SessionClaims, verify_session
+from app.speech.intent import has_any
 from app.speech.phrases import phrase
 from app.utils.redact import redact_transcript
 
@@ -45,6 +46,7 @@ MAX_GOODBYE_WAIT_SEC = 15.0
 END_PADDING_SEC = 1.0  # extra grace after the estimated speech time before ending
 WS_UNAUTHORIZED = 4401
 WS_MISMATCH = 4403
+RETURN_TO_MENU = ("main menu", "go back", "back to menu", "that is all", "thats all", "no thanks")
 
 
 @dataclass
@@ -132,7 +134,7 @@ class RelaySession:
         )
         self._deadline_task = asyncio.create_task(self._enforce_deadline())
 
-        kind = self.policy.verification_needed()
+        kind = self.policy.verification_needed()  # NONE when the graph already verified
         if kind != Verification.NONE:
             self.verifier = Verifier(
                 kind=kind,
@@ -254,6 +256,9 @@ class RelaySession:
                 self._arm_silence(self._last_reply_chars)
             else:
                 await self._say(phrase("goodbye_abuse", lang), end=True)
+            return
+        if self.claims.via_graph and has_any(text, *RETURN_TO_MENU):
+            await self._say("Okay, going back to the menu.", end=True)  # Twilio then resumes the graph
             return
         if self.brain.turn_count >= self.settings.max_turns:
             await self._say(phrase("goodbye_limit", lang), end=True)

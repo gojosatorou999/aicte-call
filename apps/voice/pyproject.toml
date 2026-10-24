@@ -66,7 +66,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "ASYNC", "E402", "E731", "B905", "RUF012"]
+"tests/**" = ["S", "ASYNC", "E402", "E731", "B905", "RUF012", "RUF059"]
 "scripts/**" = ["S", "E402", "E731", "B905", "SIM117", "S110"]
 "mock_core/**" = ["S"]
 "alembic/**" = ["I001", "E402"]

@@ -42,3 +42,15 @@
 - Mock core: officer, faculty, OTP, reminder, report, upload-link and APH endpoints.
 - **English only by default** (`ENABLED_LANGUAGES=en`); other languages dormant but tested.
 - Tests: 186 total, including scripted calls for voice test-matrix rows 1-9 (row 10, voicemail, is V4).
+
+## Gather graph (no LLM in the call path) + README
+
+- `app/graph/`: engine, per-call state, TwiML rendering and nodes for the public, institution
+  (inbound and outbound), officer (keypad PIN) and faculty (keypad OTP) conversations; routes
+  `/voice/g/turn` and `/voice/g/resume`.
+- `CONVERSATION_MODE` = `gather` (default) | `relay` | `hybrid`; hybrid hands off to the LLM relay
+  and resumes the graph. New session claims `verified`, `via_graph`.
+- Spoken-time parser, no/number-choice intent helpers, `SessionPolicy.commitment_error`.
+- `scripts/simulate_call.py` console phone; `tests/phone.py` fake phone; `.env.example`;
+  full root `README.md`.
+- Tests: 223 total; in gather mode a stub LLM fails the test if it is ever called.

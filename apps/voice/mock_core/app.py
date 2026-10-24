@@ -19,6 +19,13 @@ INSTITUTION = {
     "city": "Anantapur",
     "state": "Andhra Pradesh",
 }
+INSTITUTION_2 = {
+    "id": "inst-002",
+    "name": "Sri Sai College of Engineering",
+    "city": "Chennai",
+    "state": "Tamil Nadu",
+}
+INSTITUTIONS = [INSTITUTION, INSTITUTION_2]
 
 
 def _auth(authorization: str = Header(default="")) -> None:
@@ -68,13 +75,12 @@ def callback(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.get(f"{P}/public/institutions")
 def search_institutions(name: str, state: str | None = None) -> dict[str, Any]:
-    hit = name.lower() in INSTITUTION["name"].lower()
-    return {"results": [INSTITUTION] if hit else []}
+    return {"results": [i for i in INSTITUTIONS if name.lower() in i["name"].lower()]}
 
 
 @app.get(f"{P}/public/institutions/{{institution_id}}/approval")
 def approval(institution_id: str, academic_year: str | None = None) -> dict[str, Any]:
-    if institution_id != INSTITUTION["id"]:
+    if institution_id not in {i["id"] for i in INSTITUTIONS}:
         raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "params": {}}})
     return {
         "institution_id": institution_id,

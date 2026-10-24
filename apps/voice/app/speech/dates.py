@@ -374,3 +374,34 @@ def _weekday(today: date, idx: int, *, nxt: bool, this: bool) -> date:
     if delta == 0 and not this:
         delta = 7
     return today + timedelta(days=delta)
+
+
+_TIME_RE: Final = re.compile(
+    r"\b(?P<h>1[0-2]|0?[1-9])(?:[:.](?P<m>[0-5]\d))?\s*(?P<ap>a\.?m\.?|p\.?m\.?)\b", re.IGNORECASE
+)
+_BARE_24H: Final = re.compile(r"\b(?P<h>[01]?\d|2[0-3])[:.](?P<m>[0-5]\d)\b")
+
+
+def resolve_time(phrase: str) -> tuple[int, int]:
+    """"3 pm", "3:30 p.m.", "15:00", "noon", "in the morning" -> (hour, minute).
+
+    Vague day-parts map to a fixed hour (morning 10, afternoon 15, evening 17)
+    and are read back to the caller like any other time."""
+    text = (phrase or "").lower()
+    if m := _TIME_RE.search(text):
+        hour = int(m["h"]) % 12 + (12 if m["ap"].lower().startswith("p") else 0)
+        return hour, int(m["m"] or 0)
+    if m := _BARE_24H.search(text):
+        return int(m["h"]), int(m["m"])
+    if "noon" in text or "midday" in text:
+        return 12, 0
+    for word, hour in (("morning", 10), ("afternoon", 15), ("evening", 17)):
+        if word in text:
+            return hour, 0
+    raise DateParseError(f"no time in {phrase!r}")
+
+
+def spoken_time(hour: int, minute: int) -> str:
+    suffix = "A M" if hour < 12 else "P M"
+    h12 = hour % 12 or 12
+    return f"{h12} {suffix}" if minute == 0 else f"{h12} {minute:02d} {suffix}"

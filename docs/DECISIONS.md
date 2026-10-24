@@ -101,3 +101,31 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   offer a callback; three outages in a row end the call with a "technical problem" message.
 - **Outbound context** is built by `agent/personas.py` (`OutboundJob`, one script per call
   purpose) and read from `app.state.jobs`, which the V4 dialer will fill.
+
+## Gather graph, no LLM in the call path (user request, hybrid chosen)
+
+- **`CONVERSATION_MODE=gather` is the default.** The conversation is a deterministic graph of
+  Twilio `<Gather>` nodes (`app/graph/`); OpenAI is not called at all. `relay` keeps the earlier
+  all-LLM behaviour; `hybrid` runs the graph and hands only unanswerable questions to the LLM
+  relay, then resumes the graph via the `<Connect action>` URL (`/voice/g/resume`). `hybrid`
+  without `LLM_API_KEY` is the same as `gather`. The old request that described "the Gather graph"
+  referred to the earlier Sentinel project; this is a fresh implementation, not a port.
+- **One rulebook for both paths.** The graph calls tools through the same `GatedToolRunner` /
+  `SessionPolicy` as the LLM path (visibility, date limits, faculty-id injection, lookup limits).
+  Where the graph has already had an explicit yes it passes `confirmed=True` (`skip_confirm`) -
+  every other rule still applies. `SessionPolicy.commitment_error` is the single date rule.
+- **Graph state is in memory, per CallSid** (`graph/state.py`), like the daily limiter: one worker
+  only until it moves to Redis (V7). After a restart mid-call the caller hears a technical-problem
+  message and the call ends.
+- **Verified status travels into the LLM relay** as a signed `verified` claim (plus `via_graph`,
+  which lets the relay hand the call back when the caller says "main menu"), so hybrid mode does
+  not ask for the PIN twice.
+- **Typed-number institutions** go to a single "I can arrange an officer call back" node
+  (`inst_limited`); they never reach the commitment flow.
+- **Free-text nodes skip the global voice commands** (only the abuse check applies), so a
+  complaint that mentions "the officer" or "goodbye" is not mistaken for a command.
+- **Speech-to-text is Twilio's `<Gather>`,** `en-IN`, with Twilio's default model unless
+  `GATHER_SPEECH_MODELS_JSON` overrides it. `bargeIn` is set on non-sensitive prompts; this attribute
+  and the best `speechModel` for Indian English are unverified until a real call.
+- **Institution names in the graph** are trimmed of filler words at the ends only
+  ("is X approved" -> "X"); core's search does the fuzzy matching.

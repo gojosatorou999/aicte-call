@@ -47,6 +47,11 @@ class SessionClaims:
     job_id: str | None = None
     identity_source: IdentitySource = IdentitySource.ANONYMOUS
     subject_id: str | None = None  # institution_id / officer_id / faculty_id from the caller lookup
+    # Set when the Gather graph already verified the caller (PIN/OTP) and then handed the call
+    # to the LLM relay, so the relay does not ask again. Only we can set it: the token is signed.
+    verified: bool = False
+    # The call came from the Gather graph: the relay may hand control back to it.
+    via_graph: bool = False
 
 
 def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str:
@@ -65,6 +70,10 @@ def mint_session(claims: SessionClaims, settings: Settings | None = None) -> str
         payload["subject_id"] = claims.subject_id
     if claims.job_id:
         payload["job_id"] = claims.job_id
+    if claims.verified:
+        payload["verified"] = True
+    if claims.via_graph:
+        payload["via_graph"] = True
     return jwt.encode(payload, s.jwt_secret, algorithm=_ALG)
 
 
@@ -89,4 +98,6 @@ def verify_session(token: str, settings: Settings | None = None) -> SessionClaim
         job_id=data.get("job_id"),
         identity_source=IdentitySource(data.get("identity_source", IdentitySource.ANONYMOUS)),
         subject_id=data.get("subject_id"),
+        verified=bool(data.get("verified", False)),
+        via_graph=bool(data.get("via_graph", False)),
     )

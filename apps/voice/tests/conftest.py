@@ -15,6 +15,8 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "development")
     # The suite exercises every language; English-only is the production default.
     monkeypatch.setenv("ENABLED_LANGUAGES", "en,hi,te,ml,ta,kn")
+    # Existing suites exercise the LLM relay path; graph tests choose their own mode.
+    monkeypatch.setenv("CONVERSATION_MODE", "relay")
     get_settings.cache_clear()
     drain.reset_for_tests()
     yield

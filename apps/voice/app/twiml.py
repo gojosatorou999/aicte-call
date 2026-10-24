@@ -82,10 +82,13 @@ def relay(
     lang_code: str,
     session_jwt: str,
     welcome: str,
-    recording_callback: str,
+    recording_callback: str | None,
+    action: str | None = None,
     settings: Settings | None = None,
 ) -> str:
-    """Hand the call to ConversationRelay with dual-channel recording.
+    """Hand the call to ConversationRelay, with dual-channel recording unless
+    `recording_callback` is None (already recording). `action` is where Twilio
+    sends the call when the relay ends: the Gather graph uses it to resume.
 
     The session JWT travels as a <Parameter> (arrives in the `setup`
     message's `customParameters`), not in the URL: query strings on the
@@ -93,15 +96,17 @@ def relay(
     s = settings or get_settings()
     lang = langs.get_language(lang_code)
     vr = VoiceResponse()
-    start = vr.start()
-    start.recording(
-        recording_status_callback=recording_callback,
-        recording_status_callback_method="POST",
-        recording_status_callback_event="completed",
-        channels="dual",
-        track="both",
-    )
-    relay_node = vr.connect().conversation_relay(
+    if recording_callback:
+        start = vr.start()
+        start.recording(
+            recording_status_callback=recording_callback,
+            recording_status_callback_method="POST",
+            recording_status_callback_event="completed",
+            channels="dual",
+            track="both",
+        )
+    connect = vr.connect(action=action) if action else vr.connect()
+    relay_node = connect.conversation_relay(
         url=ws_url,
         language=lang.bcp47,
         welcome_greeting=welcome,

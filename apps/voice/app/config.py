@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     call_holidays: str = ""
     # Calling days, Python weekday numbers (Mon=0). app.md: Mon-Sat.
     call_days: str = "0,1,2,3,4,5"
+    # How calls are conversed:
+    #   gather - deterministic Twilio <Gather> graph; NO LLM in the call path (default)
+    #   relay  - LLM over ConversationRelay for every turn (needs LLM_API_KEY)
+    #   hybrid - Gather graph, with the LLM relay only for questions the graph can't answer
+    conversation_mode: Literal["gather", "relay", "hybrid"] = "gather"
     # Languages offered on calls, comma-separated short codes. English only by default;
     # set ENABLED_LANGUAGES=en,hi,te,ml,ta,kn to bring back the six-language menu.
     enabled_languages: str = "en"
