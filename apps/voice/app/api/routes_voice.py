@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app import dial, ivr, twiml
 from app.agent.personas import OutboundJob
-from app.api.twilio_auth import require_twilio_signature
+from app.api.twilio_auth import TwilioRequest, require_twilio_signature, twilio_request
 from app.config import get_settings
 from app.core_client import CoreClient, CoreError
 from app.graph.start import start_call
@@ -281,11 +281,26 @@ async def recording(request: Request, form: Form = Depends(require_twilio_signat
 
 @router.post("/outbound-twiml")
 async def outbound_twiml(
-    request: Request, d: str = "", form: Form = Depends(require_twilio_signature)
+    request: Request, d: str = "", tw: TwilioRequest = Depends(twilio_request)
 ) -> Response:
     """Twilio fetches this when the person we rang picks up (the `url` of calls.create)."""
     settings = get_settings()
+    form = tw.form
     record = request.app.state.dials.get(d)
+    if tw.trust == "unsigned":
+        # Twilio's restricted trial tier sends this fetch without a signature. See
+        # dial.unsigned_fetch_problem for what stands in for it.
+        problem = (
+            "unsigned requests are switched off"
+            if not settings.dial_accept_unsigned_twiml
+            else "unknown call link"
+            if record is None
+            else dial.unsigned_fetch_problem(record, form, settings)
+        )
+        if problem:
+            log.warning("unsigned_twiml_refused", reason=problem)
+            raise HTTPException(status_code=403, detail="not authorised")
+        log.info("unsigned_twiml_accepted", call_sid=form.get("CallSid", ""))
     if record is None:
         return _xml(
             twiml.say_and_hangup(
@@ -293,6 +308,7 @@ async def outbound_twiml(
                 langs.LANGUAGES["en"],
             )
         )
+    record.fetches += 1
     to_number = form.get("To", "")
     if settings.demo_scenarios and record.scenario != "public":
         persona = dial.scenario_persona(record.scenario)

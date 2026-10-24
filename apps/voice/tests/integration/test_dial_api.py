@@ -278,3 +278,68 @@ def test_trial_account_flow_places_the_call_with_the_basics_and_polls_for_progre
     after = calls.fetches
     client.get(f"/dial/status/{sid}")
     assert calls.fetches == after  # finished calls are never asked about again
+
+
+# -- unsigned TwiML fetches (Twilio's restricted trial tier sends no X-Twilio-Signature) ---------
+def placed(api, **settings):
+    """Place a dial pad call with signature checking ON; returns what Twilio would then send."""
+    client, calls, core = api(twilio_signature_validation_enabled=True, **settings)
+    assert post_call(client).status_code == 200
+    path = calls.created[-1]["url"].removeprefix(PUBLIC_URL)
+    good = {"AccountSid": "ACtest", "CallSid": "CAfake1", "To": NUMBER, "From": "+15005550006"}
+    return client, path, good
+
+
+def test_unsigned_fetch_is_accepted_only_when_it_proves_it_belongs_to_the_call(api):
+    client, path, good = placed(api)
+    r = client.post(path, data=good)  # no signature header at all
+    assert r.status_code == 200
+    assert ET.fromstring(r.text).find("Connect/ConversationRelay") is not None
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"AccountSid": "ACother"}, "someone else's account"),
+        ({"CallSid": "CAnotours"}, "a call we did not place"),
+        ({"To": "+919000000000"}, "a different number than we dialled"),
+        ({"AccountSid": ""}, "missing account"),
+    ],
+)
+def test_unsigned_fetch_with_the_wrong_proof_is_refused(api, change, why):
+    client, path, good = placed(api)
+    assert client.post(path, data={**good, **change}).status_code == 403, why
+
+
+def test_unsigned_fetch_needs_the_unguessable_id_and_cannot_be_replayed(api):
+    client, path, good = placed(api)
+    assert client.post("/voice/outbound-twiml?d=guess", data=good).status_code == 403
+    assert client.post("/voice/outbound-twiml", data=good).status_code == 403
+    for _ in range(3):
+        assert client.post(path, data=good).status_code == 200  # Twilio may retry a fetch
+    assert client.post(path, data=good).status_code == 403  # a fourth is a replay
+
+
+def test_unsigned_fetch_can_be_switched_off(api):
+    client, path, good = placed(api, dial_accept_unsigned_twiml=False)
+    assert client.post(path, data=good).status_code == 403
+
+
+def test_a_wrong_signature_is_refused_even_though_a_missing_one_is_tolerated(api):
+    client, path, good = placed(api)
+    assert client.post(path, data=good, headers={"X-Twilio-Signature": "forged"}).status_code == 403
+
+
+def test_a_correct_signature_is_accepted_without_the_extra_proof(api):
+    from twilio.request_validator import RequestValidator
+
+    client, path, _ = placed(api)
+    form = {"CallSid": "CAanything", "To": "+919000000000"}  # signed requests need no other proof
+    sig = RequestValidator("tok").compute_signature(PUBLIC_URL + path, form)
+    assert client.post(path, data=form, headers={"X-Twilio-Signature": sig}).status_code == 200
+
+
+def test_every_other_endpoint_still_requires_a_signature(api):
+    client, _, good = placed(api)
+    for path in ("/voice/inbound", "/voice/connect?lang=en", "/voice/status", "/voice/recording"):
+        assert client.post(path, data=good).status_code == 403, path

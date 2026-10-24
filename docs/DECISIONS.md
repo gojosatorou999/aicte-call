@@ -161,3 +161,23 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
   free-tier interstitial does not swallow JSON.
 - **GitHub Pages** publishes only `dialpad/` via a workflow (`.github/workflows/pages.yml`).
 - **Mock core reads the same settings/.env as the service,** and tests ignore any local `.env`.
+
+## Unsigned TwiML fetches on Twilio's trial tier (approved by the owner)
+
+- **Observed:** for calls placed by the dial pad on a Twilio *trial* account, Twilio fetches
+  `/voice/outbound-twiml` with a Java HTTP client and **no `X-Twilio-Signature` header**. Strict
+  signature checking therefore returned 403 and every call hung up after ~5 s. (The Console's
+  "Try out Voice" fetch is unsigned the same way.) Trial accounts also refuse optional call
+  parameters ("limited parameter access"), so the dialler falls back to To/From/Url only and polls
+  call status instead of using callbacks.
+- **Decision (owner chose this over an inline-TwiML redesign or upgrading Twilio first):** for that
+  ONE endpoint, an unsigned request is accepted only if the unguessable one-time id in the URL
+  matches a call we placed AND `AccountSid` is ours AND `CallSid` is the sid Twilio returned when
+  we placed it AND `To` hashes to the number we dialled AND it has been fetched at most 3 times.
+  A signature that is present but wrong is still refused. Every other endpoint (`/voice/inbound`,
+  `/voice/connect`, `/voice/status`, `/voice/recording`, the Gather graph) stays strictly signed.
+  `DIAL_ACCEPT_UNSIGNED_TWIML=false` switches the exception off. The WebSocket that follows is
+  authenticated by our own signed session token, not by Twilio's signature.
+- **Residual risk:** the id travels in a URL that Twilio and ngrok can see; anyone who learned a
+  live id AND the call's sid, the account sid and the dialled number could replay it up to three
+  times. Once the account is upgraded and Twilio signs these requests, turn the exception off.

@@ -13,6 +13,7 @@ limits, an optional access code, and CORS limited to the dial pad's origin.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import re
 import secrets
 import time
@@ -30,6 +31,7 @@ from app.agent.personas import CallPurpose, OutboundJob
 from app.config import Settings
 from app.obs import get_logger
 from app.session import Persona
+from app.utils.hashing import hash_msisdn
 
 log = get_logger(__name__)
 
@@ -112,6 +114,8 @@ class DialRecord:
     dial_id: str
     scenario: str
     to_masked: str
+    to_hash: str = ""  # HMAC of the dialled number: lets us check Twilio's `To`
+    fetches: int = 0  # how many times Twilio has fetched this call's TwiML
     created: float = field(default_factory=time.monotonic)
     call_sid: str = ""
     status: str = "queued"
@@ -125,9 +129,9 @@ class DialStore:
         self._by_id: dict[str, DialRecord] = {}
         self._by_sid: dict[str, DialRecord] = {}
 
-    def create(self, scenario: str, to_masked: str) -> DialRecord:
+    def create(self, scenario: str, to_masked: str, to_hash: str = "") -> DialRecord:
         self._sweep()
-        rec = DialRecord(secrets.token_urlsafe(12), scenario, to_masked)
+        rec = DialRecord(secrets.token_urlsafe(12), scenario, to_masked, to_hash)
         self._by_id[rec.dial_id] = rec
         return rec
 
@@ -311,6 +315,31 @@ class Dialer:
         except TwilioException:
             return None
         return str(call.status)
+
+
+MAX_TWIML_FETCHES = 3  # Twilio may retry a fetch; more than this is a replay
+
+
+def unsigned_fetch_problem(
+    record: DialRecord, form: dict[str, str], settings: Settings
+) -> str | None:
+    """Why an UNSIGNED request for this call's TwiML must be refused (None = fine).
+
+    Without a signature the request is authenticated by what only the real call can present:
+    the unguessable id in the URL (that is how `record` was found), our own AccountSid, the
+    CallSid Twilio returned when we placed the call, and the number we dialled."""
+    if not hmac.compare_digest(form.get("AccountSid", ""), settings.twilio_account_sid):
+        return "account does not match"
+    if not record.call_sid or not hmac.compare_digest(form.get("CallSid", ""), record.call_sid):
+        return "call does not match"
+    if record.to_hash and not hmac.compare_digest(
+        hash_msisdn(form.get("To", ""), settings.caller_hash_pepper.get_secret_value()),
+        record.to_hash,
+    ):
+        return "dialled number does not match"
+    if record.fetches >= MAX_TWIML_FETCHES:
+        return "already used"
+    return None
 
 
 def demo_job(dial_id: str) -> OutboundJob:

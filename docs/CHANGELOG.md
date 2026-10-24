@@ -77,3 +77,10 @@
   (read-only preflight against Twilio, the tunnel, CORS and the page).
 - Safeguards for the public page: prefix allow-list, rate limits, optional access code.
 - Tests: 283.
+
+## Trial-account fixes
+
+- Dialler retries with only To/From/Url when Twilio refuses optional parameters; status is polled.
+- `/voice/outbound-twiml` accepts Twilio's unsigned trial-tier fetch under a strict capability
+  check (see DECISIONS.md); a wrong signature is still refused. Twilio's error text is logged for
+  the operator. Tests: 298.

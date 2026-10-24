@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from app import dial
 from app.config import get_settings
 from app.obs import get_logger
-from app.utils.hashing import mask_msisdn
+from app.utils.hashing import hash_msisdn, mask_msisdn
 
 router = APIRouter(prefix="/dial", tags=["dial"])
 log = get_logger(__name__)
@@ -76,7 +76,11 @@ async def initiate_call(
         request.app.state.dial_guard.check(number, _client_ip(request))
 
         store: dial.DialStore = request.app.state.dials
-        record = store.create(scenario, mask_msisdn(number))
+        record = store.create(
+            scenario,
+            mask_msisdn(number),
+            hash_msisdn(number, s.caller_hash_pepper.get_secret_value()),
+        )
         sid, status = await dialer.place(
             to=number,
             url=f"{s.public_base}/voice/outbound-twiml?d={record.dial_id}",

@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     # Demo scenarios (public / institution / officer / faculty) on the dial pad. Needs the
     # mock core; refused in production.
     demo_scenarios: bool = False
+    # Twilio's restricted trial tier fetches the TwiML for a dial-pad call without an
+    # X-Twilio-Signature. Accept that for that one endpoint, but only when the one-time id,
+    # account, call sid and dialled number all match (see dial.unsigned_fetch_problem).
+    dial_accept_unsigned_twiml: bool = True
 
     # -- Outbound calling (used by the V4 dialer) -------------------------
     call_hours_start: str = "10:00"
