@@ -389,3 +389,73 @@ def test_no_operator_advice_is_shown_in_production(api):
     answer(client, calls)
     get_settings().app_env = AppEnv.PRODUCTION
     assert "hint" not in finish(client, "CAfake1")
+
+
+# -- the conversation steps of a trial-tier (unsigned) call carry a per-call key ------------------
+def gather_call(api, **settings):
+    """A dial pad call in gather mode with signature checking ON, answered the way the trial tier
+    answers it (unsigned). Returns the client, the first Gather's action path, and a good form."""
+    client, calls, _ = api(mode="gather", twilio_signature_validation_enabled=True, **settings)
+    assert post_call(client).status_code == 200
+    path = calls.created[-1]["url"].removeprefix(PUBLIC_URL)
+    form = {"AccountSid": "ACtest", "CallSid": "CAfake1", "To": NUMBER, "From": "+15005550006"}
+    twiml = client.post(path, data=form)
+    assert twiml.status_code == 200, twiml.text
+    action = ET.fromstring(twiml.text).find("Gather").get("action").removeprefix(PUBLIC_URL)
+    return client, action, {**form, "SpeechResult": "check an institution"}
+
+
+def test_every_action_url_carries_a_secret_per_call_key(api):
+    client, action, _ = gather_call(api)
+    assert "k=" in action and "n=pub_menu" in action
+    call = client.app.state.calls.get("CAfake1")
+    assert f"k={call.key}" in action and len(call.key) >= 16
+
+
+def test_unsigned_conversation_step_with_the_key_is_accepted_and_continues(api):
+    client, action, form = gather_call(api)
+    r = client.post(action, data=form)  # no signature header, as the trial tier sends it
+    assert r.status_code == 200
+    nxt = ET.fromstring(r.text).find("Gather").get("action")
+    assert "n=pub_inst_name" in nxt  # the conversation moved on
+    assert (
+        client.post(
+            nxt.removeprefix(PUBLIC_URL), data={**form, "SpeechResult": "Sri Venkateswara"}
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda a: a.replace("k=", "k=x"),  # wrong key
+        lambda a: a.split("&k=")[0].split("?")[0] + "?n=pub_menu",  # key missing
+    ],
+)
+def test_unsigned_step_without_or_with_the_wrong_key_is_refused(api, tamper):
+    client, action, form = gather_call(api)
+    assert client.post(tamper(action), data=form).status_code == 403
+
+
+def test_unsigned_step_from_another_account_or_unknown_call_is_refused(api):
+    client, action, form = gather_call(api)
+    assert client.post(action, data={**form, "AccountSid": "ACother"}).status_code == 403
+    assert client.post(action, data={**form, "CallSid": "CAnotours"}).status_code == 403
+
+
+def test_unsigned_steps_can_be_switched_off_and_wrong_signatures_never_pass(api):
+    client, action, form = gather_call(api)
+    assert (
+        client.post(action, data=form, headers={"X-Twilio-Signature": "forged"}).status_code == 403
+    )
+    get_settings().dial_accept_unsigned_twiml = False
+    assert client.post(action, data=form).status_code == 403
+
+
+def test_a_correct_signature_works_on_conversation_steps(api):
+    from twilio.request_validator import RequestValidator
+
+    client, action, form = gather_call(api)
+    sig = RequestValidator("tok").compute_signature(PUBLIC_URL + action, form)
+    assert client.post(action, data=form, headers={"X-Twilio-Signature": sig}).status_code == 200

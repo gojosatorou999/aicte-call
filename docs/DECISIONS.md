@@ -181,3 +181,27 @@ Spec gaps resolved under app.md 0.2 rule 9. Newest last.
 - **Residual risk:** the id travels in a URL that Twilio and ngrok can see; anyone who learned a
   live id AND the call's sid, the account sid and the dialled number could replay it up to three
   times. Once the account is upgraded and Twilio signs these requests, turn the exception off.
+
+## Gather mode on the trial account, as the earlier agent ran (owner approved)
+
+- **Why live mode failed:** on this Twilio *trial* account ConversationRelay calls are answered and
+  then ended about a second after our TwiML, with no WebSocket attempt; the AI/ML addendum setting
+  that Twilio's docs require could not be found, and a trial hides Twilio's own error records.
+- **What the earlier Sentinel agent did on this account** (verified from its code and `.env`): the
+  Gather flow (`RUNNER_MODE=true`), `<Say voice="Polly.Kajal-Neural" language="en-IN">`,
+  `speechModel="phone_call"`, `speechTimeout="auto"`, calls placed with only To/From/Url, and
+  `TWILIO_SIGNATURE_VALIDATION_ENABLED=false` ("ngrok free strips headers" - in truth the trial tier
+  sends no signature). This project now does the same, with `CONVERSATION_MODE=gather`.
+- **Approved exception, extended from the TwiML fetch to the conversation steps:** every action URL
+  we hand Twilio for a call carries `k=<per-call random key>` (`CallState.key`). An UNSIGNED request
+  to `/voice/g/turn` or `/voice/g/resume` is accepted only if `k` matches that call's key, `AccountSid`
+  is ours and the CallSid is a call we are handling. A wrong signature is still refused, every other
+  endpoint stays strictly signed, and `DIAL_ACCEPT_UNSIGNED_TWIML=false` turns the whole exception off.
+  This is far narrower than the earlier agent's "validation off everywhere".
+- **Residual risk:** the key sits in URLs that Twilio and ngrok can see; someone who learned a live
+  call's key AND its CallSid and our AccountSid could drive that one call's conversation. Remove the
+  exception after upgrading the account.
+- **Recording is optional** (`RECORD_CALLS`, off in the local `.env`): `<Start><Recording>` is another
+  element a restricted trial account may refuse.
+- **Live mode is kept** for an upgraded account with ConversationRelay enabled (the human-sounding,
+  interruptible voice); nothing was removed.

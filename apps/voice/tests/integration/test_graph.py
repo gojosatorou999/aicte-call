@@ -586,7 +586,7 @@ def test_hybrid_hands_unclear_questions_to_the_llm_relay_and_resumes(graph, monk
 
     relay = t.relay
     assert relay is not None and t.root.find("Start") is None  # already recording
-    assert t.root.find("Connect").get("action").endswith("/voice/g/resume")
+    assert "/voice/g/resume?k=" in t.root.find("Connect").get("action")  # carries the per-call key
     claims = verify_session(relay_session_param(t.xml))
     assert (claims.persona, claims.verified, claims.via_graph) == (Persona.OFFICER, True, True)
     assert claims.language == "en"

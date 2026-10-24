@@ -35,8 +35,8 @@ def spoken_lines(call: CallState, step: Step) -> list[str]:
     return lines
 
 
-def turn_url(settings: Settings, node_id: str, *, noinput: bool = False) -> str:
-    query = {"n": node_id} | ({"noinput": "1"} if noinput else {})
+def turn_url(settings: Settings, node_id: str, key: str, *, noinput: bool = False) -> str:
+    query = {"n": node_id, "k": key} | ({"noinput": "1"} if noinput else {})
     return f"{settings.public_base}/voice/g/turn?{urlencode(query)}"
 
 
@@ -75,7 +75,7 @@ def render(
 
     options: dict[str, object] = {
         "input": target.kind.value,
-        "action": turn_url(settings, target.id),
+        "action": turn_url(settings, target.id, call.key),
         "method": "POST",
         "timeout": max(1, round(settings.no_input_timeout_ms / 1000)),
         "language": _ENGLISH.bcp47,
@@ -95,7 +95,7 @@ def render(
         options["barge_in"] = "true"  # let callers speak or key over the prompt
     gather = vr.gather(**options)
     gather.say(prompt, voice=voice, language=_ENGLISH.bcp47)
-    vr.redirect(turn_url(settings, target.id, noinput=True), method="POST")
+    vr.redirect(turn_url(settings, target.id, call.key, noinput=True), method="POST")
     return str(vr)
 
 
@@ -123,6 +123,6 @@ def _relay(call: CallState, settings: Settings) -> str:
         session_jwt=token,
         welcome=RELAY_WELCOME,
         recording_callback=None,  # the call is already being recorded
-        action=f"{settings.public_base}/voice/g/resume",
+        action=f"{settings.public_base}/voice/g/resume?k={call.key}",
         settings=settings,
     )

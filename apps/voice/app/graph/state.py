@@ -12,6 +12,7 @@ asked core), and nothing here is written to logs.
 
 from __future__ import annotations
 
+import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,6 +45,9 @@ class CallState:
     token: str  # session JWT for core calls
     runner: GatedToolRunner
     node: str = ""
+    # Secret carried in every action URL we hand Twilio for this call. It stands in for the
+    # signature when Twilio's trial tier does not send one (see api/routes_graph.py).
+    key: str = field(default_factory=lambda: secrets.token_urlsafe(16))
     job: OutboundJob | None = None
     verifier: Verifier | None = None
     slots: dict[str, Any] = field(default_factory=dict)

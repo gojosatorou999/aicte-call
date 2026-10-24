@@ -84,3 +84,9 @@
 - `/voice/outbound-twiml` accepts Twilio's unsigned trial-tier fetch under a strict capability
   check (see DECISIONS.md); a wrong signature is still refused. Twilio's error text is logged for
   the operator. Tests: 298.
+
+## Gather mode on the trial account
+
+- Gather path uses Polly neural en-IN and `phone_call` (as the earlier agent); recording optional.
+- Per-call key in action URLs; unsigned conversation steps accepted only with it (see DECISIONS.md).
+- Tests: 311.
